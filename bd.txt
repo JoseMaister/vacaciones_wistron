@@ -1,0 +1,75 @@
+-- Table: public.employees
+
+-- DROP TABLE IF EXISTS public.employees;
+
+CREATE TABLE IF NOT EXISTS public.employees
+(
+    id integer NOT NULL DEFAULT nextval('employees_id_seq'::regclass),
+    employee_number character varying(10) COLLATE pg_catalog."default" NOT NULL,
+    name character varying(100) COLLATE pg_catalog."default" NOT NULL,
+    password character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    role_id integer NOT NULL,
+    CONSTRAINT employees_pkey PRIMARY KEY (id),
+    CONSTRAINT employees_employee_number_key UNIQUE (employee_number),
+    CONSTRAINT employees_role_id_fkey FOREIGN KEY (role_id)
+        REFERENCES public.roles (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE NO ACTION
+)
+
+TABLESPACE pg_default;
+
+ALTER TABLE IF EXISTS public.employees
+    OWNER to guillermo;
+
+-- Table: public.roles
+
+-- DROP TABLE IF EXISTS public.roles;
+
+CREATE TABLE IF NOT EXISTS public.roles
+(
+    id integer NOT NULL DEFAULT nextval('roles_id_seq'::regclass),
+    role_name character varying(50) COLLATE pg_catalog."default" NOT NULL,
+    hierarchy_level integer NOT NULL DEFAULT 99,
+    CONSTRAINT roles_pkey PRIMARY KEY (id)
+)
+
+TABLESPACE pg_default;
+
+ALTER TABLE IF EXISTS public.roles
+    OWNER to guillermo;
+-- Index: roles_hierarchy_level_idx
+
+-- DROP INDEX IF EXISTS public.roles_hierarchy_level_idx;
+
+CREATE UNIQUE INDEX IF NOT EXISTS roles_hierarchy_level_idx
+    ON public.roles USING btree
+    (hierarchy_level ASC NULLS LAST)
+    WITH (fillfactor=100, deduplicate_items=True)
+    TABLESPACE pg_default;
+
+
+-- Table: public.vacation_requests
+
+-- DROP TABLE IF EXISTS public.vacation_requests;
+
+CREATE TABLE IF NOT EXISTS public.vacation_requests
+(
+    id integer NOT NULL DEFAULT nextval('vacation_requests_id_seq'::regclass),
+    employee_id integer,
+    date_start date NOT NULL,
+    date_end date NOT NULL,
+    status character varying(50) COLLATE pg_catalog."default" DEFAULT 'Pending'::character varying,
+    submitted_at timestamp without time zone DEFAULT now(),
+    employee_name character varying(100) COLLATE pg_catalog."default",
+    CONSTRAINT vacation_requests_pkey PRIMARY KEY (id),
+    CONSTRAINT vacation_requests_employee_id_fkey FOREIGN KEY (employee_id)
+        REFERENCES public.employees (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE
+)
+
+TABLESPACE pg_default;
+
+ALTER TABLE IF EXISTS public.vacation_requests
+    OWNER to guillermo;

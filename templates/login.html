@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="">
+  <title>Login</title>
+
+  <!-- Bootstrap core CSS -->
+  <link href="{{ url_for('static', filename='assets/dist/css/bootstrap.min.css') }}" rel="stylesheet">
+
+  <!-- Custom styles -->
+  <link href="{{ url_for('static', filename='signin.css') }}" rel="stylesheet">
+
+  <style>
+    .bd-placeholder-img {
+      font-size: 1.125rem;
+      text-anchor: middle;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      user-select: none;
+    }
+    
+    @media (min-width: 768px) {
+      .bd-placeholder-img-lg {
+        font-size: 3.5rem;
+      }
+    }
+  </style>
+</head>
+
+<body class="text-center">
+  <main class="form-signin bg-white shadow p-4 rounded">
+    <form action="{{ url_for('login') }}" method="POST">
+      <div>
+        <img class="mb-4" src="{{ url_for('static', filename='logowistron.png') }}" alt="Logo" width="180" height="57">
+      </div>
+
+      <h1 class="h3 mb-2 fw-normal">Sign In</h1>
+
+      <!-- Flash messages (for login feedback) -->
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="alert alert-danger" role="alert">
+              {{ message }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <!-- Username input -->
+      <div class="mb-3">
+        <input 
+          type="text" 
+          class="form-control" 
+          id="username" 
+          name="username"
+          placeholder="Username"
+          maxlength="10"
+          required
+        >
+      </div>
+
+      <!-- Password input -->
+      <div class="form-floating mb-3">
+        <input 
+          type="password" 
+          class="form-control" 
+          id="password" 
+          name="password" 
+          placeholder="Password"
+          required
+        >
+        <label for="password">Password</label>
+      </div>
+
+      <!-- Forgot password link -->
+      <div class="mb-3">
+        <a href="{{ url_for('forgot_password') }}">Forgot password?</a>
+      </div>
+
+      <!-- Submit button -->
+      <div class="mb-3">
+        <button type="submit" class="w-100 btn btn-lg btn-primary">
+          Sign in
+        </button>
+      </div> 
+    </form>
+  </main>
+</body>
+</html>

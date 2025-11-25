@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="">
+  <meta name="author" content="">
+  <title>Vacation Log</title>
+
+  <!-- Bootstrap CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='assets/dist/css/bootstrap.min.css') }}">
+  <!-- Datepicker CSS -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/css/bootstrap-datepicker.min.css">
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+
+<body>
+  <!-- Navbar -->
+  <header class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
+    <div class="navbar-brand col-md-3 col-lg-2 me-0 px-3">
+      <img src="{{ url_for('static', filename='logowistron.png') }}" alt="Logo" height="50" style="display: block;">
+    </div>
+
+    <div class="navbar-nav">
+      <div class="nav-item text-nowrap">
+        <a class="nav-link px-3" href="{{ url_for('logout') }}">Sign out</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sidebar + Main Content -->
+  <div class="container-fluid">
+    <div class="row">
+      <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+        <div class="position-sticky pt-5">
+          <ul class="nav flex-column">
+                    <li class="nav-item">
+          <a class="nav-link active" aria-current="page" href="{{ url_for('index') }}">
+            <span data-feather="home"></span>
+            Vacation Log
+          </a>
+        </li>
+
+            <hr class="my-3">
+
+                <li class="nav-item">
+      <a class="nav-link" href="{{ url_for('show_requests') }}">
+        <span data-feather="file"></span>
+        View Requests
+      </a>
+    </li>
+          </ul>
+        </div>
+      </nav>
+
+      <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+        <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+          <h1 class="h2">Vacation Request</h1>
+        </div>
+
+        <div class="card col-lg-12">
+          <div class="card-header" style="font-size: 24px;">Submit a Vacation Request 🏝️</div>
+          <div class="card-body">
+            <form id="vacationForm">
+              <div class="mb-3">
+                <label for="employee_number" class="form-label">Employee Number</label>
+                <input type="text" class="form-control" id="employee_number"
+                       placeholder="Example: ML12345678"
+                       maxlength="10" pattern="^[a-zA-Z0-9]{1,10}$"
+                       title="Accepts only letters (A-Z, a-z) and numbers (0-9), max 10 characters."
+                       required>
+              </div>
+
+              <div class="mb-3">
+                <label for="employee_name" class="form-label">Employee Name</label>
+                <input type="text" class="form-control" id="employee_name"
+                       placeholder="Example: Kevin Gonzalez"
+                       pattern="^[a-zA-Z\s]+$"
+                       title="Accepts only letters and blank spaces."
+                       required>
+              </div>
+
+              <div class="mb-3">
+                <label for="date_start" class="form-label">Start Date</label>
+                <input type="date" class="form-control" id="date_start" required>
+              </div>
+
+              <div class="mb-3">
+                <label for="date_end" class="form-label">End Date</label>
+                <input type="date" class="form-control" id="date_end" required>
+              </div>
+
+              <div class="d-grid gap-2 col-12">
+                <button class="btn btn-primary" type="submit">Submit</button>
+              </div>
+            </form>
+
+            <!-- Message Area -->
+            <div id="message" class="alert mt-3" role="alert" style="display:none;"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- JavaScript -->
+  <script>
+    document.getElementById("vacationForm").addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      const name = document.getElementById("employee_name").value.trim();
+      const dateStart = document.getElementById("date_start").value;
+      const dateEnd = document.getElementById("date_end").value;
+      const messageBox = document.getElementById("message");
+
+      try {
+        const response = await fetch("/submit", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: name,
+            date_start: dateStart,
+            date_end: dateEnd
+          }),
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          messageBox.className = "alert alert-success mt-3";
+          messageBox.innerText = result.message;
+          messageBox.style.display = "block";
+          document.getElementById("vacationForm").reset();
+        } else {
+          messageBox.className = "alert alert-danger mt-3";
+          messageBox.innerText = result.error || "Error submitting request.";
+          messageBox.style.display = "block";
+        }
+      } catch (error) {
+        messageBox.className = "alert alert-danger mt-3";
+        messageBox.innerText = "Server connection failed.";
+        messageBox.style.display = "block";
+      }
+    });
+  </script>
+
+  <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>
