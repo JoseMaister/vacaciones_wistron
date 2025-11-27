@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
-from datetime import datetime
+from datetime import datetime, timedelta
 import psycopg2
 from functools import wraps
 from flask import abort
@@ -41,23 +41,26 @@ def index():
     if not session.get('logged_in'):
         flash("You must log in first.")
         return redirect(url_for('login'))
-    
-    username = session.get('username')
-    return render_template('index.html', username=username)
+
+    return render_template(
+        'index.html',
+        username=session.get('username'),
+        employee_number=session.get('employee_number')
+    )
 
 
 # --- LOGIN ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        employee_number = request.form.get('username')
+        numero_reloj = request.form.get('username')
         password = request.form.get('password')
 
         conn = get_conn()
         cur = conn.cursor()
 
         try:
-            cur.execute("SELECT id, name, password, role_id FROM employees WHERE employee_number = %s", (employee_number,))
+            cur.execute("SELECT id, nombre, passwrd, role_id FROM example_employees WHERE numero_reloj = %s", (numero_reloj,))
             user = cur.fetchone()
 
             if user and user[2] == password:
@@ -65,6 +68,7 @@ def login():
                 session['username'] = user[1]
                 session['employee_id'] = user[0]
                 session['role_id'] = user[3]
+                session['employee_number'] = numero_reloj
                 return redirect(url_for('show_requests'))
             else:
                 flash("Invalid employee number or password.")
@@ -108,10 +112,10 @@ def show_requests():
             cur.execute("""
                 SELECT vr.id, e.name, vr.date_start, vr.date_end, vr.status, vr.submitted_at
                 FROM vacation_requests vr
-                JOIN employees e ON vr.employee_id = e.id
+                JOIN example_employees e ON vr.employee_id = e.id
                 WHERE vr.employee_id = %s
                 ORDER BY vr.submitted_at DESC;
-            """, (session.get('employee_id'),))
+            """, (session.get('numero_reloj'),))
         else:
             cur.execute("""
                 SELECT vr.id, e.name, vr.date_start, vr.date_end, vr.status, vr.submitted_at
@@ -146,8 +150,18 @@ def submit_vacation():
     try:
         start = datetime.strptime(data['date_start'], "%Y-%m-%d")
         end = datetime.strptime(data['date_end'], "%Y-%m-%d")
+
+        # Validation: End date cannot be before start date
         if end < start:
             return jsonify({"error": "End date cannot be before start date."}), 400
+
+        # Validation: Requests must be submitted at least 7 days in advance
+        min_allowed_date = datetime.now() + timedelta(days=6)
+        if start < min_allowed_date:
+            return jsonify({
+                "error": "Vacation requests must be submitted at least 7 days in advance."
+            }), 400
+
     except ValueError:
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
 
@@ -155,8 +169,8 @@ def submit_vacation():
     cur = conn.cursor()
 
     try:
-        # for techn
-        employee_id = session.get('employee_id')
+        # Get employee ID from session (for technicians)
+        employee_id = session.get('numero_reloj')
 
         cur.execute("""
             INSERT INTO vacation_requests (employee_id, date_start, date_end, status)
@@ -182,21 +196,22 @@ def submit_vacation():
         cur.close()
         conn.close()
 
+
 # --- GET ALL REQUESTS (JSON API) ---
 @app.route('/requests', methods=['GET'])
 def get_vacation_requests():
     conn = get_conn()
     cur = conn.cursor()
-
+#--HERE IS THE MDF ERROR--
     try:
         if session.get('role_id') == 40:  # Technician
             cur.execute("""
                 SELECT vr.id, e.name, vr.date_start, vr.date_end, vr.status, vr.submitted_at
-                FROM vacation_requests vr
-                JOIN employees e ON vr.employee_id = e.id
-                WHERE vr.employee_id = %s
+                FROM example_employees vr
+                JOIN example_employees e ON vr.numero_reloj = e.id
+                WHERE vr.numero_reloj = %s
                 ORDER BY vr.submitted_at DESC;
-            """, (session.get('employee_id'),))
+            """, (session.get('numero_reloj'),))
         else:
             cur.execute("""
                 SELECT vr.id, e.name, vr.date_start, vr.date_end, vr.status, vr.submitted_at
@@ -290,4 +305,4 @@ def delete_request(id):
 # --- RUN APP ---
 if __name__ == '__main__':
     print("🚀 Starting Flask server with PostgreSQL backend...")
-    app.run(host="0.0.0.0", debug=True, port=5008)
+    app.run(host="0.0.0.0", debug=True, port=6169)

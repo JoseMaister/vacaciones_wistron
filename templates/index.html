@@ -10,9 +10,10 @@
 
   <!-- Bootstrap CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='assets/dist/css/bootstrap.min.css') }}">
-  <!-- Datepicker CSS -->
-  <link rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/css/bootstrap-datepicker.min.css">
+
+  <!-- Flatpickr CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
   <!-- Custom CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 </head>
@@ -37,21 +38,21 @@
       <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
         <div class="position-sticky pt-5">
           <ul class="nav flex-column">
-                    <li class="nav-item">
-          <a class="nav-link active" aria-current="page" href="{{ url_for('index') }}">
-            <span data-feather="home"></span>
-            Vacation Log
-          </a>
-        </li>
+            <li class="nav-item">
+              <a class="nav-link active" aria-current="page" href="{{ url_for('index') }}">
+                <span data-feather="home"></span>
+                Vacation Log
+              </a>
+            </li>
 
             <hr class="my-3">
 
-                <li class="nav-item">
-      <a class="nav-link" href="{{ url_for('show_requests') }}">
-        <span data-feather="file"></span>
-        View Requests
-      </a>
-    </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('show_requests') }}">
+                <span data-feather="file"></span>
+                View Requests
+              </a>
+            </li>
           </ul>
         </div>
       </nav>
@@ -65,38 +66,40 @@
           <div class="card-header" style="font-size: 24px;">Submit a Vacation Request 🏝️</div>
           <div class="card-body">
             <form id="vacationForm">
-              <div class="mb-3">
-                <label for="employee_number" class="form-label">Employee Number</label>
-                <input type="text" class="form-control" id="employee_number"
-                       placeholder="Example: ML12345678"
-                       maxlength="10" pattern="^[a-zA-Z0-9]{1,10}$"
-                       title="Accepts only letters (A-Z, a-z) and numbers (0-9), max 10 characters."
-                       required>
-              </div>
 
-              <div class="mb-3">
-                <label for="employee_name" class="form-label">Employee Name</label>
-                <input type="text" class="form-control" id="employee_name"
-                       placeholder="Example: Kevin Gonzalez"
-                       pattern="^[a-zA-Z\s]+$"
-                       title="Accepts only letters and blank spaces."
-                       required>
-              </div>
+  <div class="mb-3">
+    <label for="employee_number" class="form-label">Employee Number</label>
+    <input type="text" class="form-control"
+           id="employee_number"
+           value="{{ employee_number }}"
+           readonly>
+  </div>
 
-              <div class="mb-3">
-                <label for="date_start" class="form-label">Start Date</label>
-                <input type="date" class="form-control" id="date_start" required>
-              </div>
+  <div class="mb-3">
+    <label for="employee_name" class="form-label">Employee Name</label>
+    <input type="text" class="form-control"
+           id="employee_name"
+           value="{{ username }}"
+           readonly>
+  </div>
 
-              <div class="mb-3">
-                <label for="date_end" class="form-label">End Date</label>
-                <input type="date" class="form-control" id="date_end" required>
-              </div>
+  <div class="mb-3">
+    <label for="date_range" class="form-label">Vacation Period</label>
+    <input type="text" class="form-control"
+           id="date_range"
+           placeholder="Select vacation range"
+           required>
+  </div>
 
-              <div class="d-grid gap-2 col-12">
-                <button class="btn btn-primary" type="submit">Submit</button>
-              </div>
-            </form>
+  <input type="hidden" id="date_start">
+  <input type="hidden" id="date_end">
+
+  <div class="d-grid gap-2 col-12">
+    <button class="btn btn-primary" type="submit">Submit</button>
+  </div>
+
+</form>
+
 
             <!-- Message Area -->
             <div id="message" class="alert mt-3" role="alert" style="display:none;"></div>
@@ -149,6 +152,29 @@
     });
   </script>
 
+  <!-- Bootstrap JS -->
   <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+
+  <!-- Flatpickr JS -->
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+  <!-- Flatpickr Config -->
+  <script>
+  flatpickr("#date_range", {
+    mode: "range",
+    dateFormat: "Y-m-d",
+    minDate: new Date().fp_incr(7),  //At least 7 days of anticipation
+    onChange: function (selectedDates) {
+      if (selectedDates.length === 2) {
+        document.getElementById("date_start").value =
+          selectedDates[0].toISOString().split("T")[0];
+        document.getElementById("date_end").value =
+          selectedDates[1].toISOString().split("T")[0];
+      }
+    }
+  });
+</script>
+
+
 </body>
 </html>
