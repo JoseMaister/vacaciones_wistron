@@ -4,15 +4,19 @@ import psycopg2
 from functools import wraps
 from flask import abort
 
-DSN = "postgresql://guillermo:mfte@10.121.161.225:5432/swte_3rd?sslmode=disable"
+# DSN for your local Postgres
+DSN = "postgresql://postgres:1234@localhost:5432/vacaciones_local?sslmode=disable"
 
 def get_conn():
     return psycopg2.connect(DSN)
 
 app = Flask(__name__)
-app.secret_key = 'my_super_secret_key'  # Required for sessions and flash messages
+app.secret_key = 'my_super_secret_key'
 
-# --- ROLE CHECK DECORATOR ---
+
+# ============================================================
+# DECORATORS
+# ============================================================
 def role_required(*roles):
     def decorator(f):
         @wraps(f)
@@ -21,17 +25,19 @@ def role_required(*roles):
                 flash("You must log in first.")
                 return redirect(url_for('login'))
             
-            user_role = session.get('role_id')
-            if user_role not in roles:
-                abort(403)  # Forbidden
+            if session.get('role_id') not in roles:
+                abort(403)
+
             return f(*args, **kwargs)
         return decorated_function
     return decorator
 
-# --- HOME (DEFAULT) ---
+
+# ============================================================
+# HOME
+# ============================================================
 @app.route('/')
 def home():
-    """Redirect to login if not logged in"""
     if session.get('logged_in'):
         return redirect(url_for('show_requests'))
     return redirect(url_for('login'))
@@ -49,7 +55,9 @@ def index():
     )
 
 
-# --- LOGIN ---
+# ============================================================
+# LOGIN
+# ============================================================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -60,9 +68,15 @@ def login():
         cur = conn.cursor()
 
         try:
-            cur.execute("SELECT id, nombre, passwrd, role_id FROM example_employees WHERE numero_reloj = %s", (numero_reloj,))
+            # Fetch user by employee number
+            cur.execute("""
+                SELECT id, nombre, passwrd, role_id 
+                FROM example_employees 
+                WHERE numero_reloj = %s
+            """, (numero_reloj,))
             user = cur.fetchone()
 
+            # Password validation
             if user and user[2] == password:
                 session['logged_in'] = True
                 session['username'] = user[1]
@@ -75,8 +89,8 @@ def login():
                 return redirect(url_for('login'))
 
         except Exception as e:
-            print("⚠️ Error during login:", e)
-            flash("An error occurred while trying to log in.")
+            print(" Error during login:", e)
+            flash("Error while logging in.")
             return redirect(url_for('login'))
         finally:
             cur.close()
@@ -84,43 +98,48 @@ def login():
 
     return render_template('login.html')
 
-# --- LOGOUT ---
+
 @app.route('/logout')
 def logout():
     session.clear()
     flash("You have been logged out.")
     return redirect(url_for('login'))
 
-# --- FORGOT PASSWORD PAGE ---
+
 @app.route('/forgot-password')
 def forgot_password():
     return render_template('password.html')
 
-# --- VIEW REQUESTS ---
+
+# ============================================================
+# VIEW REQUESTS (HTML)
+# ============================================================
 @app.route('/view-requests')
 def show_requests():
-    """Protected route: View vacation requests from DB"""
     if not session.get('logged_in'):
-        flash("You must log in to view this page.")
+        flash("You must log in first.")
         return redirect(url_for('login'))
 
     conn = get_conn()
     cur = conn.cursor()
 
     try:
-        if session.get('role_id') == 40:  # Technician
+        # Technician (role 4) → Only their own requests
+        if session.get('role_id') == 4:
             cur.execute("""
-                SELECT vr.id, e.name, vr.date_start, vr.date_end, vr.status, vr.submitted_at
+                SELECT vr.id, e.nombre, vr.date_start, vr.date_end, vr.status, vr.submitted_at
                 FROM vacation_requests vr
                 JOIN example_employees e ON vr.employee_id = e.id
                 WHERE vr.employee_id = %s
                 ORDER BY vr.submitted_at DESC;
-            """, (session.get('numero_reloj'),))
+            """, (session.get('employee_id'),))
+
+        # Engineer/Admin → All requests
         else:
             cur.execute("""
-                SELECT vr.id, e.name, vr.date_start, vr.date_end, vr.status, vr.submitted_at
+                SELECT vr.id, e.nombre, vr.date_start, vr.date_end, vr.status, vr.submitted_at
                 FROM vacation_requests vr
-                JOIN employees e ON vr.employee_id = e.id
+                JOIN example_employees e ON vr.employee_id = e.id
                 ORDER BY vr.submitted_at DESC;
             """)
 
@@ -128,100 +147,48 @@ def show_requests():
         return render_template('requests.html', requests=requests)
 
     except Exception as e:
-        print("⚠️ Error fetching vacation requests:", e)
+        print(" Error fetching vacation requests:", e)
         flash("Error fetching vacation requests.")
         return redirect(url_for('index'))
     finally:
         cur.close()
         conn.close()
 
-# --- SUBMIT VACATION REQUEST ---
-@app.route('/submit', methods=['POST'])
-def submit_vacation():
-    if not request.is_json:
-        return jsonify({"error": "The request must be in JSON format."}), 415
 
-    data = request.get_json()
-
-    required_fields = ('date_start', 'date_end')
-    if not all(k in data for k in required_fields):
-        return jsonify({"error": "Missing required fields: date_start, date_end"}), 400
-
-    try:
-        start = datetime.strptime(data['date_start'], "%Y-%m-%d")
-        end = datetime.strptime(data['date_end'], "%Y-%m-%d")
-
-        # Validation: End date cannot be before start date
-        if end < start:
-            return jsonify({"error": "End date cannot be before start date."}), 400
-
-        # Validation: Requests must be submitted at least 7 days in advance
-        min_allowed_date = datetime.now() + timedelta(days=6)
-        if start < min_allowed_date:
-            return jsonify({
-                "error": "Vacation requests must be submitted at least 7 days in advance."
-            }), 400
-
-    except ValueError:
-        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
-
-    conn = get_conn()
-    cur = conn.cursor()
-
-    try:
-        # Get employee ID from session (for technicians)
-        employee_id = session.get('numero_reloj')
-
-        cur.execute("""
-            INSERT INTO vacation_requests (employee_id, date_start, date_end, status)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id;
-        """, (employee_id, start, end, 'Pending'))
-
-        new_id = cur.fetchone()[0]
-        conn.commit()
-
-        print(f"✅ New vacation request saved (ID {new_id}) for employee ID {employee_id}")
-
-        return jsonify({
-            "message": "Vacation request submitted successfully.",
-            "id": new_id
-        }), 201
-
-    except Exception as e:
-        conn.rollback()
-        print("⚠️ Error inserting vacation request:", e)
-        return jsonify({"error": "Error saving vacation request."}), 500
-    finally:
-        cur.close()
-        conn.close()
-
-
-# --- GET ALL REQUESTS (JSON API) ---
+# ============================================================
+# GET REQUESTS (JSON API)
+# ============================================================
 @app.route('/requests', methods=['GET'])
 def get_vacation_requests():
+    if not session.get('logged_in'):
+        return jsonify({"error": "Not logged in"}), 403
+
     conn = get_conn()
     cur = conn.cursor()
-#--HERE IS THE MDF ERROR--
+
     try:
-        if session.get('role_id') == 40:  # Technician
+        # Technician (role 4) → Only their requests
+        if session.get('role_id') == 4:
             cur.execute("""
-                SELECT vr.id, e.name, vr.date_start, vr.date_end, vr.status, vr.submitted_at
-                FROM example_employees vr
-                JOIN example_employees e ON vr.numero_reloj = e.id
-                WHERE vr.numero_reloj = %s
+                SELECT vr.id, e.nombre, vr.date_start, vr.date_end, vr.status, vr.submitted_at
+                FROM vacation_requests vr
+                JOIN example_employees e ON vr.employee_id = e.id
+                WHERE vr.employee_id = %s
                 ORDER BY vr.submitted_at DESC;
-            """, (session.get('numero_reloj'),))
+            """, (session.get('employee_id'),))
+
+        # Engineer/Admin → All
         else:
             cur.execute("""
-                SELECT vr.id, e.name, vr.date_start, vr.date_end, vr.status, vr.submitted_at
+                SELECT vr.id, e.nombre, vr.date_start, vr.date_end, vr.status, vr.submitted_at
                 FROM vacation_requests vr
-                JOIN employees e ON vr.employee_id = e.id
+                JOIN example_employees e ON vr.employee_id = e.id
                 ORDER BY vr.submitted_at DESC;
             """)
 
         rows = cur.fetchall()
 
+        # Format JSON
         requests = [{
             "id": r[0],
             "employee_name": r[1],
@@ -234,24 +201,75 @@ def get_vacation_requests():
         return jsonify(requests)
 
     except Exception as e:
-        print("⚠️ Error fetching vacation requests:", e)
+        print(" Error fetching vacation requests:", e)
         return jsonify({"error": "Error fetching vacation requests."}), 500
     finally:
         cur.close()
         conn.close()
 
-# --- APPROVE REQUEST ---
+
+# ============================================================
+# SUBMIT NEW REQUEST
+# ============================================================
+@app.route('/submit', methods=['POST'])
+def submit_request():
+    if not session.get('logged_in'):
+        return jsonify({"error": "Not logged in"}), 403
+
+    data = request.get_json()  
+
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    employee_id = session.get('employee_id')
+    date_start = data.get('date_start')
+    date_end = data.get('date_end')
+
+    if not date_start or not date_end:
+        return jsonify({"error": "Missing dates"}), 400
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            INSERT INTO vacation_requests (employee_id, date_start, date_end, status, submitted_at)
+            VALUES (%s, %s, %s, 'Pending', NOW())
+            RETURNING id;
+        """, (employee_id, date_start, date_end))
+
+        request_id = cur.fetchone()[0]
+        conn.commit()
+
+        return jsonify({"message": "Request submitted", "id": request_id}), 200
+
+    except Exception as e:
+        conn.rollback()
+        print(" Error submitting request:", e)
+        return jsonify({"error": "Error submitting request"}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ============================================================
+# APPROVE
+# ============================================================
 @app.route('/approve/<int:id>', methods=['POST'])
 def approve_request(id):
     conn = get_conn()
     cur = conn.cursor()
     try:
         cur.execute("UPDATE vacation_requests SET status='Approved' WHERE id=%s RETURNING id;", (id,))
-        updated = cur.fetchone()
+        result = cur.fetchone()
         conn.commit()
-        if not updated:
+
+        if not result:
             return jsonify({"error": "Request not found"}), 404
-        return jsonify({"message": f"Request {id} approved successfully."}), 200
+
+        return jsonify({"message": f"Request {id} approved."}), 200
+
     except Exception as e:
         conn.rollback()
         return jsonify({"error": str(e)}), 500
@@ -259,18 +277,24 @@ def approve_request(id):
         cur.close()
         conn.close()
 
-# --- REJECT REQUEST ---
+
+# ============================================================
+# REJECT
+# ============================================================
 @app.route('/reject/<int:id>', methods=['POST'])
 def reject_request(id):
     conn = get_conn()
     cur = conn.cursor()
     try:
         cur.execute("UPDATE vacation_requests SET status='Rejected' WHERE id=%s RETURNING id;", (id,))
-        updated = cur.fetchone()
+        result = cur.fetchone()
         conn.commit()
-        if not updated:
+
+        if not result:
             return jsonify({"error": "Request not found"}), 404
-        return jsonify({"message": f"Request {id} rejected successfully."}), 200
+
+        return jsonify({"message": f"Request {id} rejected."}), 200
+
     except Exception as e:
         conn.rollback()
         return jsonify({"error": str(e)}), 500
@@ -278,31 +302,37 @@ def reject_request(id):
         cur.close()
         conn.close()
 
-# --- DELETE VACATION REQUEST ---
+
+# ============================================================
+# DELETE
+# ============================================================
 @app.route('/delete/<int:id>', methods=['DELETE'])
 def delete_request(id):
     conn = get_conn()
     cur = conn.cursor()
 
     try:
-        cur.execute("DELETE FROM vacation_requests WHERE id = %s RETURNING id;", (id,))
+        cur.execute("DELETE FROM vacation_requests WHERE id=%s RETURNING id;", (id,))
         deleted = cur.fetchone()
         conn.commit()
 
         if not deleted:
-            return jsonify({"error": f"Request {id} not found."}), 404
+            return jsonify({"error": "Request not found"}), 404
 
-        return jsonify({"message": f"Request {id} deleted successfully"}), 200
+        return jsonify({"message": f"Request {id} deleted."}), 200
 
     except Exception as e:
         conn.rollback()
-        print("⚠️ Error deleting vacation request:", e)
+        print("Error deleting request:", e)
         return jsonify({"error": "Error deleting vacation request."}), 500
     finally:
         cur.close()
         conn.close()
 
-# --- RUN APP ---
+
+# ============================================================
+# RUN SERVER
+# ============================================================
 if __name__ == '__main__':
-    print("🚀 Starting Flask server with PostgreSQL backend...")
+    print("Starting Flask server with PostgreSQL backend...")
     app.run(host="0.0.0.0", debug=True, port=6169)
