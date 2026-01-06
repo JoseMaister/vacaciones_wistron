@@ -1,116 +1,43 @@
--- Table: public.employees
+-- ============================================================
+-- DATABASE SCHEMA - VACATION REQUEST SYSTEM
+-- ============================================================
 
--- DROP TABLE IF EXISTS public.employees;
+-- 1. Cleanup (Drop tables if they exist)
+DROP TABLE IF EXISTS vacation_requests CASCADE;
+DROP TABLE IF EXISTS employees CASCADE;
 
-CREATE TABLE IF NOT EXISTS public.employees
-(
-    id integer NOT NULL DEFAULT nextval('employees_id_seq'::regclass),
-    employee_number character varying(10) COLLATE pg_catalog."default" NOT NULL,
-    name character varying(100) COLLATE pg_catalog."default" NOT NULL,
-    password character varying(255) COLLATE pg_catalog."default" NOT NULL,
-    role_id integer NOT NULL,
-    CONSTRAINT employees_pkey PRIMARY KEY (id),
-    CONSTRAINT employees_employee_number_key UNIQUE (employee_number),
-    CONSTRAINT employees_role_id_fkey FOREIGN KEY (role_id)
-        REFERENCES public.roles (id) MATCH SIMPLE
-        ON UPDATE NO ACTION
-        ON DELETE NO ACTION
-)
+-- 2. Employees Table
+-- role_id defines the hierarchy (see below)
+CREATE TABLE employees (
+    id SERIAL PRIMARY KEY,
+    employee_number VARCHAR(10) UNIQUE NOT NULL, -- Ex: ML12345678
+    name VARCHAR(100) NOT NULL,
+    password VARCHAR(255) NOT NULL, -- Stores hashed password
+    role_id INT NOT NULL,           -- 1, 2, 3, 4, or 5
+    shift INT                       -- 1, 2, or 3 (Can be NULL for Admin/Clerk)
+);
 
-TABLESPACE pg_default;
-
-ALTER TABLE IF EXISTS public.employees
-    OWNER to guillermo;
--- Table: public.example_employees
-
--- DROP TABLE IF EXISTS public.example_employees;
-
-CREATE TABLE IF NOT EXISTS public.example_employees
-(
-    id integer NOT NULL,
-    numero_reloj character varying(10) COLLATE pg_catalog."default" NOT NULL,
-    nombre character varying(33) COLLATE pg_catalog."default" NOT NULL,
-    tarjeta_id character varying(10) COLLATE pg_catalog."default",
-    activo character varying(5) COLLATE pg_catalog."default" NOT NULL,
-    fecha_creacion character varying(26) COLLATE pg_catalog."default" NOT NULL,
-    departament character varying(6) COLLATE pg_catalog."default",
-    turno integer,
-    passwrd character varying(255) COLLATE pg_catalog."default" NOT NULL DEFAULT 1234,
-    role_id integer,
-    CONSTRAINT example_employees_pkey PRIMARY KEY (id)
-)
-
-TABLESPACE pg_default;
-
-ALTER TABLE IF EXISTS public.example_employees
-    OWNER to guillermo;
--- Table: public.mytable
-
--- DROP TABLE IF EXISTS public.mytable;
-
-CREATE TABLE IF NOT EXISTS public.mytable
-(
-    id integer NOT NULL,
-    numero_reloj character varying(10) COLLATE pg_catalog."default" NOT NULL,
-    nombre character varying(33) COLLATE pg_catalog."default" NOT NULL,
-    tarjeta_id character varying(10) COLLATE pg_catalog."default",
-    activo character varying(5) COLLATE pg_catalog."default" NOT NULL,
-    fecha_creacion character varying(26) COLLATE pg_catalog."default" NOT NULL,
-    departament character varying(6) COLLATE pg_catalog."default",
-    turno integer,
-    CONSTRAINT mytable_pkey PRIMARY KEY (id)
-)
-
-TABLESPACE pg_default;
-
-ALTER TABLE IF EXISTS public.mytable
-    OWNER to guillermo;
--- Table: public.roles
-
--- DROP TABLE IF EXISTS public.roles;
-
-CREATE TABLE IF NOT EXISTS public.roles
-(
-    id integer NOT NULL DEFAULT nextval('roles_id_seq'::regclass),
-    role_name character varying(50) COLLATE pg_catalog."default" NOT NULL,
-    hierarchy_level integer NOT NULL DEFAULT 99,
-    CONSTRAINT roles_pkey PRIMARY KEY (id)
-)
-
-TABLESPACE pg_default;
-
-ALTER TABLE IF EXISTS public.roles
-    OWNER to guillermo;
--- Index: roles_hierarchy_level_idx
-
--- DROP INDEX IF EXISTS public.roles_hierarchy_level_idx;
-
-CREATE UNIQUE INDEX IF NOT EXISTS roles_hierarchy_level_idx
-    ON public.roles USING btree
-    (hierarchy_level ASC NULLS LAST)
-    WITH (fillfactor=100, deduplicate_items=True)
-    TABLESPACE pg_default;
--- Table: public.vacation_requests
-
--- DROP TABLE IF EXISTS public.vacation_requests;
-
-CREATE TABLE IF NOT EXISTS public.vacation_requests
-(
-    id integer NOT NULL DEFAULT nextval('vacation_requests_id_seq'::regclass),
-    employee_id integer,
-    date_start date NOT NULL,
-    date_end date NOT NULL,
-    status character varying(50) COLLATE pg_catalog."default" DEFAULT 'Pending'::character varying,
-    submitted_at timestamp without time zone DEFAULT now(),
-    employee_name character varying(100) COLLATE pg_catalog."default",
-    CONSTRAINT vacation_requests_pkey PRIMARY KEY (id),
-    CONSTRAINT vacation_requests_employee_id_fkey FOREIGN KEY (employee_id)
-        REFERENCES public.employees (id) MATCH SIMPLE
-        ON UPDATE NO ACTION
-        ON DELETE CASCADE
-)
-
-TABLESPACE pg_default;
-
-ALTER TABLE IF EXISTS public.vacation_requests
-    OWNER to guillermo;
+-- 3. Vacation Requests Table
+CREATE TABLE vacation_requests (
+    id SERIAL PRIMARY KEY,
+    employee_id INT REFERENCES employees(id), -- Who is requesting
+    
+    -- Request Details
+    date_start DATE NOT NULL,
+    date_end DATE NOT NULL,
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'Pending Engineer',
+    
+    -- Comments
+    tech_comment TEXT,
+    clerk_comment TEXT,
+    
+    -- Approval Signatures (Chain of Command)
+    engineer_id INT REFERENCES employees(id),
+    supervisor_id INT REFERENCES employees(id),
+    admin_id INT REFERENCES employees(id),
+    clerk_id INT REFERENCES employees(id),
+    
+    -- Soft Delete (Recycle Bin)
+    is_hidden BOOLEAN DEFAULT FALSE
+);

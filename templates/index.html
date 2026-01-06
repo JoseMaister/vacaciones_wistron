@@ -8,18 +8,14 @@
   <meta name="author" content="">
   <title>Vacation Log</title>
 
-  <!-- Bootstrap CSS -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='assets/dist/css/bootstrap.min.css') }}">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
 
-  <!-- Flatpickr CSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 
-  <!-- Custom CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 </head>
 
 <body>
-  <!-- Navbar -->
   <header class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
     <div class="navbar-brand col-md-3 col-lg-2 me-0 px-3">
       <img src="{{ url_for('static', filename='logowistron.png') }}" alt="Logo" height="50" style="display: block;">
@@ -32,27 +28,57 @@
     </div>
   </header>
 
-  <!-- Sidebar + Main Content -->
   <div class="container-fluid">
     <div class="row">
+
       <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
         <div class="position-sticky pt-5">
           <ul class="nav flex-column">
+
+            {% if session.role_id == 1 %}
             <li class="nav-item">
-              <a class="nav-link active" aria-current="page" href="{{ url_for('index') }}">
-                <span data-feather="home"></span>
+              <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">
                 Vacation Log
               </a>
             </li>
-
-            <hr class="my-3">
+            <hr>
+            {% endif %}
 
             <li class="nav-item">
-              <a class="nav-link" href="{{ url_for('show_requests') }}">
-                <span data-feather="file"></span>
+              <a class="nav-link {% if request.endpoint == 'show_requests' %}active{% endif %}"
+                href="{{ url_for('show_requests') }}">
                 View Requests
               </a>
             </li>
+
+            {% if session.role_id != 1 %}
+            <hr>
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint == 'calendar_view' %}active{% endif %}"
+                href="{{ url_for('calendar_view') }}">
+                Vacation Calendar
+              </a>
+            </li>
+            {% endif %}
+
+            {% if session.role_id in [2,3] %}
+            <hr>
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint in ['add_user_view','add_user_submit'] %}active{% endif %}"
+                href="{{ url_for('add_user_view') }}">
+                Add User
+              </a>
+            </li>
+            {% endif %}
+
+            <hr>
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint in ['change_password_view','change_password_submit'] %}active{% endif %}"
+                href="{{ url_for('change_password_view') }}">
+                Change Password
+              </a>
+            </li>
+
           </ul>
         </div>
       </nav>
@@ -67,41 +93,30 @@
           <div class="card-body">
             <form id="vacationForm">
 
-  <div class="mb-3">
-    <label for="employee_number" class="form-label">Employee Number</label>
-    <input type="text" class="form-control"
-           id="employee_number"
-           value="{{ employee_number }}"
-           readonly>
-  </div>
+              <div class="mb-3">
+                <label for="employee_number" class="form-label">Employee Number</label>
+                <input type="text" class="form-control" id="employee_number" value="{{ employee_number }}" readonly>
+              </div>
 
-  <div class="mb-3">
-    <label for="employee_name" class="form-label">Employee Name</label>
-    <input type="text" class="form-control"
-           id="employee_name"
-           value="{{ username }}"
-           readonly>
-  </div>
+              <div class="mb-3">
+                <label for="employee_name" class="form-label">Employee Name</label>
+                <input type="text" class="form-control" id="employee_name" value="{{ username }}" readonly>
+              </div>
 
-  <div class="mb-3">
-    <label for="date_range" class="form-label">Vacation Period</label>
-    <input type="text" class="form-control"
-           id="date_range"
-           placeholder="Select vacation range"
-           required>
-  </div>
+              <div class="mb-3">
+                <label for="date_range" class="form-label">Vacation Period</label>
+                <input type="text" class="form-control" id="date_range" placeholder="Select vacation range" required>
+              </div>
 
-  <input type="hidden" id="date_start">
-  <input type="hidden" id="date_end">
+              <input type="hidden" id="date_start">
+              <input type="hidden" id="date_end">
 
-  <div class="d-grid gap-2 col-12">
-    <button class="btn btn-primary" type="submit">Submit</button>
-  </div>
+              <div class="d-grid gap-2 col-12">
+                <button class="btn btn-primary" type="submit">Submit</button>
+              </div>
 
-</form>
+            </form>
 
-
-            <!-- Message Area -->
             <div id="message" class="alert mt-3" role="alert" style="display:none;"></div>
           </div>
         </div>
@@ -109,72 +124,134 @@
     </div>
   </div>
 
-  <!-- JavaScript -->
-  <script>
-    document.getElementById("vacationForm").addEventListener("submit", async function (e) {
-      e.preventDefault();
+  <div class="modal fade" id="techCommentModal" tabindex="-1" aria-labelledby="techCommentLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="techCommentLabel">Request Comment</h5>
+          <button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <textarea id="techCommentInput" class="form-control" rows="4"
+            placeholder="Write a short reason..."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button id="techSubmitBtn" type="button" class="btn btn-primary">Submit Request</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
-      const name = document.getElementById("employee_name").value.trim();
-      const dateStart = document.getElementById("date_start").value;
-      const dateEnd = document.getElementById("date_end").value;
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+  <script>
+    // Initialize Flatpickr: Range mode, 7-day advance notice, weekends disabled
+    flatpickr("#date_range", {
+      mode: "range",
+      dateFormat: "Y-m-d",
+      minDate: new Date().fp_incr(7),
+      disable: [
+        function (date) {
+          // Disable Sundays (0) and Saturdays (6)
+          return (date.getDay() === 0 || date.getDay() === 6); 
+        }
+      ],
+      onChange: function (selectedDates) {
+        const startEl = document.getElementById("date_start");
+        const endEl = document.getElementById("date_end");
+
+        if (selectedDates.length === 1) {
+          const d0 = selectedDates[0].toISOString().split("T")[0];
+          startEl.value = d0;
+          endEl.value = d0;
+        }
+
+        if (selectedDates.length === 2) {
+          const d0 = selectedDates[0].toISOString().split("T")[0];
+          const d1 = selectedDates[1].toISOString().split("T")[0];
+          startEl.value = d0;
+          endEl.value = d1;
+        }
+      }
+    });
+
+    // Form Submission Logic
+    let techModal = null;
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const modalEl = document.getElementById("techCommentModal");
+      techModal = new bootstrap.Modal(modalEl);
+
+      const form = document.getElementById("vacationForm");
       const messageBox = document.getElementById("message");
+
+      // Intercept form submit to show Modal first
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+
+        const dateStart = document.getElementById("date_start").value;
+
+        if (!dateStart) {
+          messageBox.className = "alert alert-danger mt-3";
+          messageBox.innerText = "Please select at least one day.";
+          messageBox.style.display = "block";
+          return;
+        }
+
+        document.getElementById("techCommentInput").value = "";
+        techModal.show();
+      });
+
+      // Handle final submission from Modal
+      document.getElementById("techSubmitBtn").addEventListener("click", submitRequestWithComment);
+    });
+
+    async function submitRequestWithComment() {
+      const messageBox = document.getElementById("message");
+      const dateStart = document.getElementById("date_start").value;
+      const dateEnd = document.getElementById("date_end").value || dateStart;
+      const comment = document.getElementById("techCommentInput").value.trim();
 
       try {
         const response = await fetch("/submit", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: name,
             date_start: dateStart,
-            date_end: dateEnd
-          }),
+            date_end: dateEnd,
+            comment: comment
+          })
         });
 
         const result = await response.json();
 
         if (response.ok) {
           messageBox.className = "alert alert-success mt-3";
-          messageBox.innerText = result.message;
+          messageBox.innerText = "✅ " + (result.message || "Request submitted");
           messageBox.style.display = "block";
+
+          // Reset form
           document.getElementById("vacationForm").reset();
+          document.getElementById("date_start").value = "";
+          document.getElementById("date_end").value = "";
+
+          techModal.hide();
         } else {
           messageBox.className = "alert alert-danger mt-3";
           messageBox.innerText = result.error || "Error submitting request.";
           messageBox.style.display = "block";
         }
-      } catch (error) {
+      } catch (err) {
         messageBox.className = "alert alert-danger mt-3";
         messageBox.innerText = "Server connection failed.";
         messageBox.style.display = "block";
       }
-    });
+    }
   </script>
 
-  <!-- Bootstrap JS -->
-  <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
-
-  <!-- Flatpickr JS -->
-  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-
-  <!-- Flatpickr Config -->
-  <script>
-  flatpickr("#date_range", {
-    mode: "range",
-    dateFormat: "Y-m-d",
-    minDate: new Date().fp_incr(7),  //At least 7 days of anticipation
-    onChange: function (selectedDates) {
-      if (selectedDates.length === 2) {
-        document.getElementById("date_start").value =
-          selectedDates[0].toISOString().split("T")[0];
-        document.getElementById("date_end").value =
-          selectedDates[1].toISOString().split("T")[0];
-      }
-    }
-  });
-</script>
-
-
 </body>
+
 </html>

@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vacation Calendar</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='dashboard.css') }}" rel="stylesheet">
+
+  <style>
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: 140px repeat(7, minmax(110px, 1fr));
+      border: 1px solid #dee2e6;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .cal-head {
+      background: #f8f9fa;
+      font-weight: 800;
+      padding: 10px;
+      border-bottom: 1px solid #dee2e6;
+    }
+
+    .cal-cell {
+      padding: 10px;
+      border-bottom: 1px solid #dee2e6;
+      border-right: 1px solid #dee2e6;
+      min-height: 90px;
+    }
+
+    .cal-left {
+      background: #ffffff;
+      font-weight: 800;
+      position: sticky;
+      left: 0;
+      z-index: 2;
+    }
+
+    .cal-weekend {
+      background: #fff3cd;
+    }
+
+    .cal-muted {
+      color: #6c757d;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .legend-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    .badge-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .badge-approved {
+      background: #d1e7dd;
+      border: 1px solid #badbcc;
+      color: #0f5132;
+      font-weight: 800;
+    }
+
+    .badge-pending {
+      background: #fff3cd;
+      border: 1px solid #ffecb5;
+      color: #664d03;
+      font-weight: 800;
+    }
+  </style>
+</head>
+
+<body data-role="{{ session.role_id }}">
+  <header class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
+    <div class="navbar-brand col-md-3 col-lg-2 me-0 px-3">
+      <img src="{{ url_for('static', filename='logowistron.png') }}" alt="Logo" height="50">
+    </div>
+
+    <div class="d-flex align-items-center ms-auto">
+      <span class="navbar-text text-white px-3">
+        Shift: {{ session.shift }}
+      </span>
+      <a class="nav-link px-3 text-white" href="{{ url_for('logout') }}">Sign out</a>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+    <div class="position-sticky pt-5">
+      <ul class="nav flex-column">
+
+        {% if session.role_id == 1 %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">
+            Vacation Log
+          </a>
+        </li>
+        <hr>
+        {% endif %}
+
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'show_requests' %}active{% endif %}"
+            href="{{ url_for('show_requests') }}">
+            View Requests
+          </a>
+        </li>
+
+        {% if session.role_id != 1 %}
+        <hr>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'calendar_view' %}active{% endif %}"
+            href="{{ url_for('calendar_view') }}">
+            Vacation Calendar
+          </a>
+        </li>
+        {% endif %}
+
+        {% if session.role_id in [2,3] %}
+        <hr>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint in ['add_user_view','add_user_submit'] %}active{% endif %}"
+            href="{{ url_for('add_user_view') }}">
+            Add User
+          </a>
+        </li>
+        {% endif %}
+        <hr>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint in ['change_password_view','change_password_submit'] %}active{% endif %}"
+            href="{{ url_for('change_password_view') }}">
+            Change Password
+          </a>
+        </li>
+
+      </ul>
+    </div>
+  </nav>
+
+
+
+  <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+    <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
+      <h1 class="h2">Vacation Calendar</h1>
+
+      <div class="d-flex gap-2 align-items-center">
+        <button class="btn btn-outline-secondary btn-sm" id="prevMonth">◀</button>
+        <div class="fw-bold" id="monthTitle"></div>
+        <button class="btn btn-outline-secondary btn-sm" id="nextMonth">▶</button>
+      </div>
+    </div>
+
+    <div class="d-flex gap-4 align-items-center mb-3">
+      <span><span class="legend-dot" style="background:#d1e7dd; border:1px solid #badbcc;"></span>Approved</span>
+      <span><span class="legend-dot" style="background:#fff3cd; border:1px solid #ffecb5;"></span>Pending</span>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div id="calendarWrap">
+          <div class="text-muted">Loading...</div>
+        </div>
+      </div>
+    </div>
+  </main>
+  </div>
+  </div>
+
+  <script>
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+    let current = new Date();
+    current.setDate(1);
+
+    document.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("prevMonth").addEventListener("click", () => {
+        current.setMonth(current.getMonth() - 1);
+        loadCalendar();
+      });
+
+      document.getElementById("nextMonth").addEventListener("click", () => {
+        current.setMonth(current.getMonth() + 1);
+        loadCalendar();
+      });
+
+      loadCalendar();
+    });
+
+    function isoDate(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    function getISOWeekNumber(date) {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      const dayNum = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    }
+
+    function loadCalendar() {
+      const y = current.getFullYear();
+      const m = current.getMonth() + 1;
+
+      document.getElementById("monthTitle").textContent = `${monthNames[current.getMonth()]} ${y}`;
+
+      const wrap = document.getElementById("calendarWrap");
+      wrap.innerHTML = `<div class="text-muted">Loading...</div>`;
+
+      fetch(`/calendar-data?year=${y}&month=${m}`)
+        .then(r => r.json())
+        .then(data => renderCalendar(data))
+        .catch(() => wrap.innerHTML = `<div class="text-danger">Error loading calendar</div>`);
+    }
+
+    function renderCalendar(data) {
+      const wrap = document.getElementById("calendarWrap");
+      const year = data.year;
+      const month = data.month;
+      const items = data.items || [];
+
+      const first = new Date(year, month - 1, 1);
+      const last = new Date(year, month, 0);
+      const daysInMonth = last.getDate();
+
+      // Build weeks (Mon-first)
+      const weeks = [];
+      let week = [];
+
+      const firstDow = (first.getDay() + 6) % 7; // Mon=0..Sun=6
+      for (let i = 0; i < firstDow; i++) week.push(null);
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        week.push(new Date(year, month - 1, day));
+        if (week.length === 7) {
+          weeks.push(week);
+          week = [];
+        }
+      }
+      if (week.length) {
+        while (week.length < 7) week.push(null);
+        weeks.push(week);
+      }
+
+      // Map date -> {approved:[], pending:[]}
+      const map = {};
+      function ensure(dateKey) {
+        if (!map[dateKey]) map[dateKey] = { approved: [], pending: [] };
+        return map[dateKey];
+      }
+
+      items.forEach(it => {
+        const start = new Date(it.date_start + "T00:00:00");
+        const end = new Date(it.date_end + "T00:00:00");
+        const isApproved = it.status === "Approved";
+        const isPending = it.status && it.status.startsWith("Pending");
+
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          if (d.getFullYear() === year && (d.getMonth() + 1) === month) {
+            const key = isoDate(d);
+            const bucket = ensure(key);
+            if (isApproved) bucket.approved.push(it.employee_name);
+            if (isPending) bucket.pending.push(it.employee_name);
+          }
+        }
+      });
+
+      wrap.innerHTML = "";
+
+      weeks.forEach((weekDays) => {
+        const grid = document.createElement("div");
+        grid.className = "calendar-grid mb-3";
+
+        // Left header: Week #
+        const leftHead = document.createElement("div");
+        leftHead.className = "cal-head cal-cell";
+        const firstReal = weekDays.find(d => d !== null) || new Date(year, month - 1, 1);
+        leftHead.textContent = `Week ${getISOWeekNumber(firstReal)}`;
+        grid.appendChild(leftHead);
+
+        // Day headers
+        weekDays.forEach((d, idx) => {
+          const head = document.createElement("div");
+          head.className = "cal-head cal-cell";
+          if (!d) {
+            head.innerHTML = `<div class="cal-muted">${dayNames[idx]}</div><div class="cal-muted">-</div>`;
+          } else {
+            head.innerHTML = `<div class="cal-muted">${dayNames[idx]}</div><div>${d.getDate()}</div>`;
+          }
+          grid.appendChild(head);
+        });
+
+        // Single row for this week: cells contain names
+        const leftRow = document.createElement("div");
+        leftRow.className = "cal-cell cal-left";
+        leftRow.innerHTML = `<div class="cal-muted">Technicians off</div>`;
+        grid.appendChild(leftRow);
+
+        weekDays.forEach((d) => {
+          const cell = document.createElement("div");
+          cell.className = "cal-cell";
+
+          if (!d) {
+            cell.innerHTML = "";
+            grid.appendChild(cell);
+            return;
+          }
+
+          const key = isoDate(d);
+          const jsDow = d.getDay();
+          const isWeekend = (jsDow === 0 || jsDow === 6);
+          if (isWeekend) cell.classList.add("cal-weekend");
+
+          const info = map[key] || { approved: [], pending: [] };
+
+          const approved = [...new Set(info.approved)].sort();
+          const pending = [...new Set(info.pending)].sort();
+
+          const parts = [];
+
+          if (approved.length) {
+            parts.push(`
+            <div class="badge-wrap mb-2">
+              ${approved.map(n => `<span class="badge badge-approved">${n}</span>`).join("")}
+            </div>
+          `);
+          }
+
+          if (pending.length) {
+            parts.push(`
+            <div class="badge-wrap">
+              ${pending.map(n => `<span class="badge badge-pending">${n}</span>`).join("")}
+            </div>
+          `);
+          }
+
+          cell.innerHTML = parts.join("") || `<div class="cal-muted">-</div>`;
+          grid.appendChild(cell);
+        });
+
+        wrap.appendChild(grid);
+      });
+    }
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+
+</html>

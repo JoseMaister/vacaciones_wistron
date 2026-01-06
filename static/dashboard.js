@@ -6,6 +6,21 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusFilter = document.getElementById('statusFilter');
 
   // ---------------------------
+  // Helper: get color class for status
+  // ---------------------------
+  function getStatusClass(status) {
+    if (!status) return 'text-secondary';
+
+    const s = status.toLowerCase();
+
+    if (s.includes('approved')) return 'text-success';   // verde
+    if (s.includes('rejected')) return 'text-danger';    // rojo
+    if (s.includes('pending')) return 'text-warning';    // amarillo
+
+    return 'text-secondary';
+  }
+
+  // ---------------------------
   // Load vacation requests with optional filter
   // ---------------------------
   async function loadRequests(filter = 'All') {
@@ -20,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let requests = await response.json();
 
       if (filter.toLowerCase() !== 'all') {
-        requests = requests.filter(req => req.status.toLowerCase() === filter.toLowerCase());
+        requests = requests.filter(req => req.status.toLowerCase().includes(filter.toLowerCase()));
       }
 
       tableBody.innerHTML = '';
@@ -43,12 +58,17 @@ document.addEventListener('DOMContentLoaded', () => {
   function addRow(request) {
     const row = document.createElement('tr');
 
-    let statusClass;
-    switch (request.status) {
-      case 'Approved': statusClass = 'text-success'; break;
-      case 'Rejected': statusClass = 'text-danger'; break;
-      default: statusClass = 'text-warning';
-    }
+    const statusClass = getStatusClass(request.status);
+
+    const pendingStates = [
+      'Pending',
+      'Pending Engineer',
+      'Pending Supervisor',
+      'Pending Admin',
+      'Pending Clerk'
+    ];
+
+    const showButtons = pendingStates.includes(request.status);
 
     row.innerHTML = `
       <th scope="row">${request.id}</th>
@@ -58,9 +78,10 @@ document.addEventListener('DOMContentLoaded', () => {
       <td class="${statusClass} fw-bold">${request.status}</td>
       <td>${request.submitted_at ? request.submitted_at.split('T')[0] : ''}</td>
       <td>
-        ${request.status === 'Pending' ? `
+        ${showButtons ? `
           <button class="btn btn-outline-success btn-sm btn-approve" title="Approve">✔️</button>
-          <button class="btn btn-outline-danger btn-sm btn-reject" title="Reject">❌</button>` : ''}
+          <button class="btn btn-outline-danger btn-sm btn-reject" title="Reject">❌</button>
+        ` : ''}
         <button class="btn btn-outline-dark btn-sm btn-delete" title="Delete">🗑️</button>
       </td>
     `;
@@ -96,7 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = await response.json();
         if (response.ok) {
           showInfoModal(`✅ ${result.message}`);
-          updateRowStatus(row, 'Approved', 'text-success');
+          updateRowStatus(row, 'Approved');
         } else {
           showInfoModal(`❌ Error: ${result.error || 'Unable to approve request.'}`, 'Error');
         }
@@ -115,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = await response.json();
         if (response.ok) {
           showInfoModal(`✅ ${result.message}`);
-          updateRowStatus(row, 'Rejected', 'text-danger');
+          updateRowStatus(row, 'Rejected');
         } else {
           showInfoModal(`❌ Error: ${result.error || 'Unable to reject request.'}`, 'Error');
         }
@@ -129,7 +150,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Modals
   // ---------------------------
 
-  // Confirmation modal (Confirm/Cancel)
   function showConfirmModal(message) {
     return new Promise((resolve) => {
       const modalEl = document.getElementById('confirmModal');
@@ -156,7 +176,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Info modal (simple "Done" message)
   function showInfoModal(message, title = 'Done') {
     const modalEl = document.getElementById('infoModal');
     const messageEl = document.getElementById('infoModalMessage');
@@ -167,16 +186,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const modal = new bootstrap.Modal(modalEl);
     modal.show();
-
-    // Auto-close after 2.5 seconds
     setTimeout(() => modal.hide(), 2500);
   }
 
   // ---------------------------
   // Update row status dynamically
   // ---------------------------
-  function updateRowStatus(row, statusText, statusClass) {
+  function updateRowStatus(row, statusText) {
     const statusCell = row.querySelector('td:nth-child(5)');
+    const statusClass = getStatusClass(statusText);
     statusCell.textContent = statusText;
     statusCell.className = `${statusClass} fw-bold`;
     row.querySelector('.btn-approve')?.remove();
@@ -214,7 +232,6 @@ document.addEventListener('DOMContentLoaded', () => {
           messageDisplay.className = 'alert alert-success mt-3';
           form.reset();
 
-          // Add new row if filter allows
           if (!statusFilter || statusFilter.value === 'All' || statusFilter.value === 'Pending') {
             addRow({
               id: result.id,

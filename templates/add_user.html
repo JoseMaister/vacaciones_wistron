@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Add User</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='dashboard.css') }}" rel="stylesheet">
+</head>
+
+<body data-role="{{ session.role_id }}">
+
+    <!-- Header -->
+    <header class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
+        <div class="navbar-brand col-md-3 col-lg-2 me-0 px-3">
+            <img src="{{ url_for('static', filename='logowistron.png') }}" alt="Logo" height="50">
+        </div>
+
+        <div class="navbar-nav">
+            <div class="nav-item text-nowrap">
+                <a class="nav-link px-3" href="{{ url_for('logout') }}">Sign out</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="container-fluid">
+        <div class="row">
+
+            <!-- Sidebar -->
+            <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+                <div class="position-sticky pt-5">
+                    <ul class="nav flex-column">
+
+                        {% if session.role_id == 1 %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('index') }}">Vacation Log</a>
+                        </li>
+                        <hr>
+                        {% endif %}
+
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('show_requests') }}">View Requests</a>
+                        </li>
+
+                        {% if session.role_id != 1 %}
+                        <hr>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('calendar_view') }}">Vacation Calendar</a>
+                        </li>
+                        {% endif %}
+
+                        {% if session.role_id in [2,3] %}
+                        <hr>
+                        <li class="nav-item">
+                            <a class="nav-link active" href="{{ url_for('add_user_view') }}">Add User</a>
+                        </li>
+                        {% endif %}
+                        <hr>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ['change_password_view','change_password_submit'] %}active{% endif %}"
+                                href="{{ url_for('change_password_view') }}">
+                                Change Password
+                            </a>
+                        </li>
+
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Add User</h1>
+                </div>
+
+                <div class="card col-lg-8">
+                    <div class="card-header" style="font-size: 20px;">
+                        {% if allowed_role_to_create == 1 %}
+                        Create Technician
+                        {% else %}
+                        Create Engineer
+                        {% endif %}
+                    </div>
+
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <div class="mb-3">
+                                <label class="form-label">Employee Number</label>
+                                <input id="employee_number" class="form-control" placeholder="ML12345678 or Z12345678"
+                                    maxlength="10">
+                                <div class="form-text">Format: ML######## or Z########</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Name</label>
+                                <input id="name" class="form-control" placeholder="Full name">
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Password</label>
+                                <input id="password" type="password" class="form-control"
+                                    placeholder="Temporary password">
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Shift</label>
+                                {% if can_choose_shift %}
+                                <select id="shift" class="form-select" style="max-width: 180px;">
+                                    <option value="1" {% if default_shift==1 %}selected{% endif %}>1</option>
+                                    <option value="2" {% if default_shift==2 %}selected{% endif %}>2</option>
+                                    <option value="3" {% if default_shift==3 %}selected{% endif %}>3</option>
+                                </select>
+                                {% else %}
+                                <input id="shift" class="form-control" style="max-width: 180px;"
+                                    value="{{ default_shift }}" readonly>
+                                <div class="form-text">Engineer can only create techs in their own shift.</div>
+                                {% endif %}
+                            </div>
+
+                            <button id="btnCreate" class="btn btn-primary">Create</button>
+
+                            <div id="msg" class="alert mt-3" style="display:none;"></div>
+                        </div>
+                    </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        const msg = document.getElementById("msg");
+
+        function showMsg(text, type) {
+            msg.className = "alert mt-3 alert-" + type;
+            msg.textContent = text;
+            msg.style.display = "block";
+        }
+
+        document.getElementById("btnCreate").addEventListener("click", async () => {
+            const employee_number = document.getElementById("employee_number").value.trim();
+            const name = document.getElementById("name").value.trim();
+            const password = document.getElementById("password").value.trim();
+            const shift = document.getElementById("shift").value;
+
+            try {
+                const r = await fetch("/add-user", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ employee_number, name, password, shift })
+                });
+
+                const data = await r.json();
+
+                if (!r.ok) {
+                    showMsg(data.error || "Error creating user", "danger");
+                    return;
+                }
+
+                showMsg("✅ " + data.message + " (ID: " + data.id + ")", "success");
+
+                document.getElementById("employee_number").value = "";
+                document.getElementById("name").value = "";
+                document.getElementById("password").value = "";
+            } catch (e) {
+                showMsg("Server connection failed", "danger");
+            }
+        });
+    </script>
+
+</body>
+
+</html>
