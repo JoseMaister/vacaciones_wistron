@@ -7,7 +7,11 @@ import pandas as pd
 import io
 import re
 
-# Database Configuration
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+# Database Connection String
 DSN = "postgresql://postgres:1234@localhost:5432/vacaciones_local?sslmode=disable"
 
 def get_conn():
@@ -17,14 +21,22 @@ app = Flask(__name__)
 app.secret_key = 'my_super_secret_key'
 
 # User Roles Constants
-ROLE_TECH = 1
-ROLE_ENG  = 2
-ROLE_SUP  = 3
-ROLE_ADMIN= 4
-ROLE_CLERK= 5
+ROLE_TECH   = 1
+ROLE_ENG    = 2
+ROLE_SUP    = 3
+ROLE_ADMIN  = 4
+ROLE_CLERK  = 5
+ROLE_MASTER = 6 
 
-# Authentication Decorator
+# ============================================================
+# DECORATORS
+# ============================================================
+
 def role_required(*roles):
+    """
+    Decorator to restrict access to specific roles.
+    Redirects to login if not authenticated, or returns 403 if unauthorized.
+    """
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -47,6 +59,7 @@ def home():
         return redirect(url_for('login'))
 
     role = session.get('role_id')
+    # Technicians go to their submission log, others to the management view
     if role == ROLE_TECH:
         return redirect(url_for('index'))
     return redirect(url_for('show_requests'))
@@ -68,7 +81,7 @@ def login():
             """, (employee_number,))
             user = cur.fetchone()
 
-            # Verify password hash
+            # Verify password hash (or handle legacy plain text if necessary via migration)
             if user and check_password_hash(user[2], password):
                 session['logged_in'] = True
                 session['username'] = user[1]
@@ -141,11 +154,11 @@ def change_password_submit():
         cur.execute("SELECT password FROM employees WHERE id = %s", (user_id,))
         row = cur.fetchone()
 
-        # Verify current password
+        # Verify current password matches hash
         if not row or not check_password_hash(row[0], current):
             return jsonify({"error": "Current password is incorrect"}), 403
 
-        # Hash new password
+        # Hash new password before saving
         new_hashed = generate_password_hash(new)
 
         cur.execute("UPDATE employees SET password = %s WHERE id = %s", (new_hashed, user_id))
@@ -161,7 +174,7 @@ def change_password_submit():
         conn.close()
 
 # ============================================================
-# DASHBOARD VIEWS
+# DASHBOARD VIEWS (HTML)
 # ============================================================
 
 @app.route('/index')
@@ -181,30 +194,46 @@ def show_requests():
     return render_template('requests.html', shift=session.get('shift'))
 
 @app.route('/calendar')
-@role_required(ROLE_ENG, ROLE_SUP, ROLE_ADMIN, ROLE_CLERK)
+@role_required(ROLE_ENG, ROLE_SUP, ROLE_ADMIN, ROLE_CLERK, ROLE_MASTER)
 def calendar_view():
     return render_template('calendar.html', shift=session.get('shift'))
 
 @app.route('/add-user', methods=['GET'])
-@role_required(ROLE_ENG, ROLE_SUP)
+@role_required(ROLE_ENG, ROLE_SUP, ROLE_MASTER)
 def add_user_view():
     role = session.get('role_id')
     shift = session.get('shift')
 
-    # Engineer creates Technician (same shift)
+    allowed_roles = []
+    can_choose_shift = False
+    default_shift = 1
+
+    # Logic to populate dropdowns based on hierarchy
     if role == ROLE_ENG:
-        allowed_role = ROLE_TECH
+        # Engineer only creates Technicians for their shift
+        allowed_roles = [{"id": ROLE_TECH, "name": "Technician"}]
         can_choose_shift = False
         default_shift = shift
-    # Supervisor creates Engineer (any shift)
-    else: 
-        allowed_role = ROLE_ENG
+
+    elif role == ROLE_SUP:
+        # Supervisor creates Engineers (any shift)
+        allowed_roles = [{"id": ROLE_ENG, "name": "Engineer"}]
         can_choose_shift = True
-        default_shift = 1
+        
+    elif role == ROLE_MASTER:
+        # Master can create ANY role
+        allowed_roles = [
+            {"id": ROLE_TECH,  "name": "Technician"},
+            {"id": ROLE_ENG,   "name": "Engineer"},
+            {"id": ROLE_SUP,   "name": "Supervisor"},
+            {"id": ROLE_ADMIN, "name": "Area Manager (Admin)"},
+            {"id": ROLE_CLERK, "name": "Clerk (HR)"}
+        ]
+        can_choose_shift = True
 
     return render_template(
         'add_user.html',
-        allowed_role_to_create=allowed_role,
+        allowed_roles=allowed_roles,
         can_choose_shift=can_choose_shift,
         default_shift=default_shift
     )
@@ -226,7 +255,7 @@ def get_vacation_requests():
     cur = conn.cursor()
 
     try:
-        # Base query logic: Technician sees own, Engineer sees shift pending, others see all/filtered
+        # 1. Technician: Sees only their own requests
         if role == ROLE_TECH:
             cur.execute("""
                 SELECT e.employee_number, e.name, vr.date_start, vr.date_end,
@@ -238,6 +267,7 @@ def get_vacation_requests():
                 ORDER BY vr.submitted_at DESC
             """, (emp_id,))
 
+        # 2. Engineer: Sees only 'Pending Engineer' for their shift
         elif role == ROLE_ENG:
             cur.execute("""
                 SELECT e.employee_number, e.name, vr.date_start, vr.date_end,
@@ -250,8 +280,8 @@ def get_vacation_requests():
                 ORDER BY vr.submitted_at DESC
             """, (eng_shift,))
 
-        # Supervisor and Clerk view full history (Active + Archive)
-        elif role in [ROLE_SUP, ROLE_CLERK]:
+        # 3. Supervisor, Clerk and MASTER: See ALL active history
+        elif role in [ROLE_SUP, ROLE_CLERK, ROLE_MASTER]:
             cur.execute("""
                 SELECT e.employee_number, e.name, vr.date_start, vr.date_end,
                        vr.status, vr.submitted_at, vr.clerk_comment, vr.tech_comment, vr.id
@@ -261,6 +291,7 @@ def get_vacation_requests():
                 ORDER BY vr.submitted_at DESC
             """)
 
+        # 4. Admin (Area Manager): Sees 'Pending Admin'
         elif role == ROLE_ADMIN:
             cur.execute("""
                 SELECT e.employee_number, e.name, vr.date_start, vr.date_end,
@@ -299,7 +330,7 @@ def get_vacation_requests():
         conn.close()
 
 @app.route('/calendar-data', methods=['GET'])
-@role_required(ROLE_ENG, ROLE_SUP, ROLE_ADMIN, ROLE_CLERK)
+@role_required(ROLE_ENG, ROLE_SUP, ROLE_ADMIN, ROLE_CLERK, ROLE_MASTER)
 def calendar_data():
     role = session.get('role_id')
     user_shift = session.get('shift')
@@ -322,8 +353,10 @@ def calendar_data():
     try:
         # Determine relevant employees based on role
         if role == ROLE_ENG:
+            # Engineers only see techs in their shift
             cur.execute("SELECT id FROM employees WHERE role_id = %s AND shift = %s", (ROLE_TECH, user_shift))
         else:
+            # Master/Sup/Admin/Clerk see all techs
             cur.execute("SELECT id FROM employees WHERE role_id = %s", (ROLE_TECH,))
 
         tech_ids = [r[0] for r in cur.fetchall()]
@@ -391,7 +424,7 @@ def export_excel():
         if role == ROLE_ENG:
             query = base_query + " AND vr.status = 'Pending Engineer' AND e.shift = %s ORDER BY vr.submitted_at DESC"
             params = (eng_shift,)
-        elif role in [ROLE_SUP, ROLE_CLERK]:
+        elif role in [ROLE_SUP, ROLE_CLERK, ROLE_MASTER]:
             query = base_query + " ORDER BY vr.submitted_at DESC"
             params = ()
         elif role == ROLE_ADMIN:
@@ -498,7 +531,7 @@ def submit_request():
         conn.close()
 
 @app.route('/add-user', methods=['POST'])
-@role_required(ROLE_ENG, ROLE_SUP)
+@role_required(ROLE_ENG, ROLE_SUP, ROLE_MASTER)
 def add_user_submit():
     role = session.get('role_id')
     session_shift = session.get('shift')
@@ -507,17 +540,36 @@ def add_user_submit():
     employee_number = (data.get('employee_number') or '').strip()
     name = (data.get('name') or '').strip()
     password = (data.get('password') or '').strip()
+    
+    # Master sends target role explicitly
+    target_role_id = data.get('role_id') 
     shift = data.get('shift')
 
+    final_role_id = None
+    
+    # Determine the role of the new user based on Creator
     if role == ROLE_ENG:
-        new_role_id = ROLE_TECH
+        final_role_id = ROLE_TECH
         shift = session_shift # Engineer forces their shift
     elif role == ROLE_SUP:
-        new_role_id = ROLE_ENG
+        final_role_id = ROLE_ENG
         try: shift = int(shift)
         except: shift = None
-    else:
-        return jsonify({"error": "Not allowed"}), 403
+    elif role == ROLE_MASTER:
+        # Master can create anyone. We trust the ID sent from frontend, 
+        # allowing creation of Techs, Engineers, Supervisors, Admins, Clerks and Masters.
+        valid_master_creates = [ROLE_TECH, ROLE_ENG, ROLE_SUP, ROLE_ADMIN, ROLE_CLERK, ROLE_MASTER]
+        
+        try: target_role_id = int(target_role_id)
+        except: pass
+
+        if target_role_id in valid_master_creates:
+            final_role_id = target_role_id
+        else:
+            return jsonify({"error": "Invalid role selection"}), 400
+    
+    if not final_role_id:
+        return jsonify({"error": "Permission denied"}), 403
 
     if not employee_number or not name or not password:
         return jsonify({"error": "Missing fields"}), 400
@@ -528,12 +580,14 @@ def add_user_submit():
     if shift not in (1, 2, 3):
         return jsonify({"error": "Invalid shift"}), 400
 
+    # Hash the password before storage
     hashed_password = generate_password_hash(password)
 
     conn = get_conn()
     cur = conn.cursor()
 
     try:
+        # Check duplicates
         cur.execute("SELECT 1 FROM employees WHERE employee_number = %s", (employee_number,))
         if cur.fetchone():
             return jsonify({"error": "Employee number already exists"}), 400
@@ -542,7 +596,7 @@ def add_user_submit():
             INSERT INTO employees (employee_number, name, password, role_id, shift)
             VALUES (%s, %s, %s, %s, %s)
             RETURNING id
-        """, (employee_number, name, hashed_password, new_role_id, shift))
+        """, (employee_number, name, hashed_password, final_role_id, shift))
 
         new_id = cur.fetchone()[0]
         conn.commit()
@@ -564,6 +618,10 @@ def approve_request(req_id):
     role = session.get('role_id')
     user_id = session.get('employee_id')
     eng_shift = session.get('shift')
+    
+    # Retrieve target status if sent (Master only)
+    data = request.get_json(silent=True) or {}
+    target_status = data.get('target_status') 
 
     conn = get_conn()
     cur = conn.cursor()
@@ -573,34 +631,45 @@ def approve_request(req_id):
         row = cur.fetchone()
         if not row:
             return jsonify({"error": "Request not found"}), 404
-        status = row[0]
+        current_status = row[0]
 
-        # Approval Workflow Logic
-        if role == ROLE_ENG and status == "Pending Engineer":
-            # Verify shift match
-            cur.execute("""
-                SELECT e.shift FROM vacation_requests vr 
-                JOIN employees e ON vr.employee_id = e.id WHERE vr.id = %s
-            """, (req_id,))
+        # --- MASTER LOGIC (JUMP TO SPECIFIC STAGE) ---
+        if role == ROLE_MASTER:
+            valid_targets = ['Pending Supervisor', 'Pending Admin', 'Pending Clerk', 'Approved']
+            
+            if target_status and target_status in valid_targets:
+                cur.execute("""
+                    UPDATE vacation_requests 
+                    SET status = %s,
+                        clerk_comment = CASE WHEN %s = 'Approved' THEN 'Approved directly by Master' ELSE clerk_comment END
+                    WHERE id = %s
+                """, (target_status, target_status, req_id))
+            else:
+                return jsonify({"error": "Master must select a valid target status"}), 400
+
+        # --- STANDARD CASCADE LOGIC ---
+        elif role == ROLE_ENG and current_status == "Pending Engineer":
+            # Check shift
+            cur.execute("SELECT e.shift FROM vacation_requests vr JOIN employees e ON vr.employee_id = e.id WHERE vr.id = %s", (req_id,))
             if cur.fetchone()[0] != eng_shift:
                 return jsonify({"error": "Permission denied (different shift)"}), 403
             
             cur.execute("UPDATE vacation_requests SET status = 'Pending Supervisor', engineer_id = %s WHERE id = %s", (user_id, req_id))
 
-        elif role == ROLE_SUP and status == "Pending Supervisor":
+        elif role == ROLE_SUP and current_status == "Pending Supervisor":
             cur.execute("UPDATE vacation_requests SET status = 'Pending Admin', supervisor_id = %s WHERE id = %s", (user_id, req_id))
 
-        elif role == ROLE_ADMIN and status == "Pending Admin":
+        elif role == ROLE_ADMIN and current_status == "Pending Admin":
             cur.execute("UPDATE vacation_requests SET status = 'Pending Clerk', admin_id = %s WHERE id = %s", (user_id, req_id))
 
-        elif role == ROLE_CLERK and status == "Pending Clerk":
+        elif role == ROLE_CLERK and current_status == "Pending Clerk":
             cur.execute("UPDATE vacation_requests SET status = 'Approved', clerk_id = %s WHERE id = %s", (user_id, req_id))
 
         else:
-            return jsonify({"error": "Permission denied or invalid status for approval"}), 403
+            return jsonify({"error": "Permission denied or invalid status"}), 403
 
         conn.commit()
-        return jsonify({"message": "Request approved"}), 200
+        return jsonify({"message": "Request processed successfully"}), 200
 
     except Exception as e:
         conn.rollback()
@@ -648,6 +717,8 @@ def reject_request(req_id):
             allowed = True
         elif role == ROLE_CLERK and status == 'Pending Clerk':
             allowed = True
+        elif role == ROLE_MASTER:
+            allowed = True  # Master can reject at any stage
 
         if not allowed:
             return jsonify({"error": "Permission denied."}), 403
@@ -690,7 +761,7 @@ def delete_request(req_id):
                 RETURNING id
             """, (req_id, user_id))
         else:
-            # Admins can hide any request
+            # Admins/Master can hide any request (History management)
             cur.execute("""
                 UPDATE vacation_requests SET is_hidden = TRUE 
                 WHERE id = %s RETURNING id
@@ -711,7 +782,121 @@ def delete_request(req_id):
     finally:
         cur.close()
         conn.close()
+# ============================================================
+# ADMINISTRATIVE PASSWORD RESET (ENGINEER & MASTER)
+# ============================================================
 
+@app.route('/manage-passwords')
+@role_required(ROLE_ENG, ROLE_MASTER)
+def manage_passwords_view():
+    return render_template('manage_passwords.html', shift=session.get('shift'))
+
+@app.route('/api/users-list', methods=['GET'])
+@role_required(ROLE_ENG, ROLE_MASTER)
+def get_users_for_reset():
+    role = session.get('role_id')
+    user_shift = session.get('shift')
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # Visibility Logic
+        if role == ROLE_ENG:
+            # Engineer: Sees only Technicians from THEIR shift
+            cur.execute("""
+                SELECT id, employee_number, name, role_id, shift 
+                FROM employees 
+                WHERE role_id = %s AND shift = %s
+                ORDER BY name ASC
+            """, (ROLE_TECH, user_shift))
+            
+        elif role == ROLE_MASTER:
+            # Master: Sees EVERYONE
+            cur.execute("""
+                SELECT id, employee_number, name, role_id, shift 
+                FROM employees 
+                ORDER BY role_id DESC, name ASC
+            """)
+            
+        rows = cur.fetchall()
+        users = []
+        
+        # Role mapping to display friendly names in the table
+        role_map = {1:"Technician", 2:"Engineer", 3:"Supervisor", 4:"Admin", 5:"Clerk", 6:"Master"}
+        
+        for r in rows:
+            users.append({
+                "id": r[0],
+                "employee_number": r[1],
+                "name": r[2],
+                "role_name": role_map.get(r[3], "Unknown"),
+                "shift": r[4]
+            })
+            
+        return jsonify(users)
+        
+    except Exception as e:
+        print("Fetch users error:", e)
+        return jsonify([])
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route('/admin-reset-password', methods=['POST'])
+@role_required(ROLE_ENG, ROLE_MASTER)
+def admin_reset_password():
+    requester_role = session.get('role_id')
+    requester_shift = session.get('shift')
+    
+    data = request.get_json(silent=True) or {}
+    target_id = data.get('target_id')
+    new_password = data.get('new_password')
+    
+    if not target_id or not new_password:
+        return jsonify({"error": "Missing data"}), 400
+        
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # Validate permissions before changing anything
+        cur.execute("SELECT role_id, shift FROM employees WHERE id = %s", (target_id,))
+        target = cur.fetchone()
+        
+        if not target:
+            return jsonify({"error": "User not found"}), 404
+            
+        target_role, target_shift = target
+        
+        allowed = False
+        
+        # Business Rules
+        if requester_role == ROLE_MASTER:
+            allowed = True # Master has full access
+            
+        elif requester_role == ROLE_ENG:
+            # Engineer can only reset Technicians from THEIR shift
+            if target_role == ROLE_TECH and target_shift == requester_shift:
+                allowed = True
+                
+        if not allowed:
+            return jsonify({"error": "Permission denied: You cannot reset this user."}), 403
+            
+        # All good, proceed with the change
+        hashed = generate_password_hash(new_password)
+        cur.execute("UPDATE employees SET password = %s WHERE id = %s", (hashed, target_id))
+        conn.commit()
+        
+        return jsonify({"message": "Password reset successfully"}), 200
+        
+    except Exception as e:
+        conn.rollback()
+        print("Admin reset error:", e)
+        return jsonify({"error": "Internal error"}), 500
+    finally:
+        cur.close()
+        conn.close()
 if __name__ == '__main__':
     print("Starting Flask server...")
     app.run(host="0.0.0.0", debug=True, port=6169)

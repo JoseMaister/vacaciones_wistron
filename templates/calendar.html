@@ -94,85 +94,94 @@
     </div>
   </header>
 
-  <!-- Sidebar -->
-  <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
-    <div class="position-sticky pt-5">
-      <ul class="nav flex-column">
+  <div class="container-fluid">
+    <div class="row">
 
-        {% if session.role_id == 1 %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">
-            Vacation Log
-          </a>
-        </li>
-        <hr>
-        {% endif %}
+      <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+        <div class="position-sticky pt-5">
+          <ul class="nav flex-column">
 
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'show_requests' %}active{% endif %}"
-            href="{{ url_for('show_requests') }}">
-            View Requests
-          </a>
-        </li>
+            {% if session.role_id == 1 %}
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">
+                Vacation Log
+              </a>
+            </li>
+            <hr>
+            {% endif %}
 
-        {% if session.role_id != 1 %}
-        <hr>
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'calendar_view' %}active{% endif %}"
-            href="{{ url_for('calendar_view') }}">
-            Vacation Calendar
-          </a>
-        </li>
-        {% endif %}
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint == 'show_requests' %}active{% endif %}"
+                href="{{ url_for('show_requests') }}">
+                View Requests
+              </a>
+            </li>
 
-        {% if session.role_id in [2,3] %}
-        <hr>
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint in ['add_user_view','add_user_submit'] %}active{% endif %}"
-            href="{{ url_for('add_user_view') }}">
-            Add User
-          </a>
-        </li>
-        {% endif %}
-        <hr>
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint in ['change_password_view','change_password_submit'] %}active{% endif %}"
-            href="{{ url_for('change_password_view') }}">
-            Change Password
-          </a>
-        </li>
+            {% if session.role_id != 1 %}
+            <hr>
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint == 'calendar_view' %}active{% endif %}"
+                href="{{ url_for('calendar_view') }}">
+                Vacation Calendar
+              </a>
+            </li>
+            {% endif %}
 
-      </ul>
-    </div>
-  </nav>
+            {% if session.role_id in [2,3,6] %}
+            <hr>
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint in ['add_user_view','add_user_submit'] %}active{% endif %}"
+                href="{{ url_for('add_user_view') }}">
+                Add User
+              </a>
+            </li>
+            {% endif %}
 
-
-
-  <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
-    <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
-      <h1 class="h2">Vacation Calendar</h1>
-
-      <div class="d-flex gap-2 align-items-center">
-        <button class="btn btn-outline-secondary btn-sm" id="prevMonth">◀</button>
-        <div class="fw-bold" id="monthTitle"></div>
-        <button class="btn btn-outline-secondary btn-sm" id="nextMonth">▶</button>
-      </div>
-    </div>
-
-    <div class="d-flex gap-4 align-items-center mb-3">
-      <span><span class="legend-dot" style="background:#d1e7dd; border:1px solid #badbcc;"></span>Approved</span>
-      <span><span class="legend-dot" style="background:#fff3cd; border:1px solid #ffecb5;"></span>Pending</span>
-    </div>
-
-    <div class="card">
-      <div class="card-body">
-        <div id="calendarWrap">
-          <div class="text-muted">Loading...</div>
+            <hr>
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint in ['change_password_view','change_password_submit'] %}active{% endif %}"
+                href="{{ url_for('change_password_view') }}">
+                Change Password
+              </a>
+            </li>
+            {% if session.role_id in [2, 6] %}
+            <hr>
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint == 'manage_passwords_view' %}active{% endif %}"
+                href="{{ url_for('manage_passwords_view') }}">
+                Manage Passwords 🔐
+              </a>
+            </li>
+            {% endif %}
+          </ul>
         </div>
-      </div>
+      </nav>
+
+      <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+        <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
+          <h1 class="h2">Vacation Calendar</h1>
+
+          <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-outline-secondary btn-sm" id="prevMonth">◀</button>
+            <div class="fw-bold" id="monthTitle"></div>
+            <button class="btn btn-outline-secondary btn-sm" id="nextMonth">▶</button>
+          </div>
+        </div>
+
+        <div class="d-flex gap-4 align-items-center mb-3">
+          <span><span class="legend-dot" style="background:#d1e7dd; border:1px solid #badbcc;"></span>Approved</span>
+          <span><span class="legend-dot" style="background:#fff3cd; border:1px solid #ffecb5;"></span>Pending</span>
+        </div>
+
+        <div class="card">
+          <div class="card-body">
+            <div id="calendarWrap">
+              <div class="text-muted">Loading...</div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
-  </main>
-  </div>
   </div>
 
   <script>

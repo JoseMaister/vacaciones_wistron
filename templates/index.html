@@ -61,7 +61,7 @@
             </li>
             {% endif %}
 
-            {% if session.role_id in [2,3] %}
+            {% if session.role_id in [2,3,6] %}
             <hr>
             <li class="nav-item">
               <a class="nav-link {% if request.endpoint in ['add_user_view','add_user_submit'] %}active{% endif %}"

@@ -1,24 +1,20 @@
 -- ============================================================
--- DATABASE SCHEMA - VACATION REQUEST SYSTEM
+-- SAFE DATABASE SCHEMA UPDATE - VACATION REQUEST SYSTEM
+-- (Does NOT delete existing data)
 -- ============================================================
 
--- 1. Cleanup (Drop tables if they exist)
-DROP TABLE IF EXISTS vacation_requests CASCADE;
-DROP TABLE IF EXISTS employees CASCADE;
-
--- 2. Employees Table
--- role_id defines the hierarchy (see below)
-CREATE TABLE employees (
+-- 1. Employees Table (Create only if it doesn't exist)
+CREATE TABLE IF NOT EXISTS employees (
     id SERIAL PRIMARY KEY,
-    employee_number VARCHAR(10) UNIQUE NOT NULL, -- Ex: ML12345678
+    employee_number VARCHAR(20) UNIQUE NOT NULL, -- Ex: ML12345678 or MASTER01
     name VARCHAR(100) NOT NULL,
     password VARCHAR(255) NOT NULL, -- Stores hashed password
-    role_id INT NOT NULL,           -- 1, 2, 3, 4, or 5
-    shift INT                       -- 1, 2, or 3 (Can be NULL for Admin/Clerk)
+    role_id INT NOT NULL,           -- Hierarchy level (1-6)
+    shift INT                       -- 1, 2, or 3
 );
 
--- 3. Vacation Requests Table
-CREATE TABLE vacation_requests (
+-- 2. Vacation Requests Table (Create only if it doesn't exist)
+CREATE TABLE IF NOT EXISTS vacation_requests (
     id SERIAL PRIMARY KEY,
     employee_id INT REFERENCES employees(id), -- Who is requesting
     
@@ -32,12 +28,23 @@ CREATE TABLE vacation_requests (
     tech_comment TEXT,
     clerk_comment TEXT,
     
-    -- Approval Signatures (Chain of Command)
+    -- Approval Signatures (Chain of Command ids)
     engineer_id INT REFERENCES employees(id),
     supervisor_id INT REFERENCES employees(id),
     admin_id INT REFERENCES employees(id),
     clerk_id INT REFERENCES employees(id),
     
-    -- Soft Delete (Recycle Bin)
+    -- Soft Delete (History Management)
     is_hidden BOOLEAN DEFAULT FALSE
 );
+
+-- 3. Safely Insert Master User
+-- "ON CONFLICT DO NOTHING" ensures that if MASTER01 already exists,
+-- it won't crash or duplicate.
+INSERT INTO employees (employee_number, name, password, role_id, shift)
+VALUES ('MASTER01', 'System Master', 'admin123', 6, 1)
+ON CONFLICT (employee_number) DO NOTHING;
+
+-- REMINDER:
+-- If you just added the Master, their password is 'admin123' (plain text).
+-- Please run 'python migrate_passwords.py' in your terminal to encrypt it.
