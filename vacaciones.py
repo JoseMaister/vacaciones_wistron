@@ -6,6 +6,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
 import io
 import re
+# --- NEW IMPORTS FOR EMAIL ---
+from flask_mail import Mail, Message
+from threading import Thread
+# -----------------------------
 
 # ============================================================
 # CONFIGURATION
@@ -20,6 +24,16 @@ def get_conn():
 app = Flask(__name__)
 app.secret_key = 'my_super_secret_key'
 
+# --- EMAIL CONFIGURATION ---
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'noreplyvacacioneswistron@gmail.com'  
+app.config['MAIL_PASSWORD'] = 'ztmu nlqe zccb zoka'        
+app.config['MAIL_DEFAULT_SENDER'] = 'noreplyvacacioneswistron@gmail.com' 
+
+mail = Mail(app)
+
 # User Roles Constants
 ROLE_TECH   = 1
 ROLE_ENG    = 2
@@ -27,6 +41,26 @@ ROLE_SUP    = 3
 ROLE_ADMIN  = 4
 ROLE_CLERK  = 5
 ROLE_MASTER = 6 
+
+# ============================================================
+# HELPER FUNCTIONS (EMAIL)
+# ============================================================
+
+def send_async_email(app, msg):
+    """Sends email in a background thread to prevent blocking the UI."""
+    with app.app_context():
+        try:
+            mail.send(msg)
+            print("Email sent successfully!")
+        except Exception as e:
+            print(f"Failed to send email: {e}")
+
+def send_email_notification(subject, recipients, body):
+    """Prepares the email and starts the background thread."""
+    if not recipients:
+        return
+    msg = Message(subject, recipients=recipients, body=body)
+    Thread(target=send_async_email, args=(app, msg)).start()
 
 # ============================================================
 # DECORATORS
@@ -81,7 +115,7 @@ def login():
             """, (employee_number,))
             user = cur.fetchone()
 
-            # Verify password hash (or handle legacy plain text if necessary via migration)
+            # Verify password hash
             if user and check_password_hash(user[2], password):
                 session['logged_in'] = True
                 session['username'] = user[1]
@@ -196,32 +230,35 @@ def show_requests():
 @app.route('/calendar')
 @role_required(ROLE_ENG, ROLE_SUP, ROLE_ADMIN, ROLE_CLERK, ROLE_MASTER)
 def calendar_view():
+    # Pass the current user's shift to the template for filtering/display
     return render_template('calendar.html', shift=session.get('shift'))
 
 @app.route('/add-user', methods=['GET'])
 @role_required(ROLE_ENG, ROLE_SUP, ROLE_MASTER)
 def add_user_view():
-    role = session.get('role_id')
-    shift = session.get('shift')
+    # Retrieve current user credentials from session
+    current_role = session.get('role_id')
+    current_shift = session.get('shift')
 
+    # Default initialization
     allowed_roles = []
     can_choose_shift = False
-    default_shift = 1
+    default_shift = 1 
 
     # Logic to populate dropdowns based on hierarchy
-    if role == ROLE_ENG:
-        # Engineer only creates Technicians for their shift
+    if current_role == ROLE_ENG:
+        # Engineer: Can only create Technicians for their specific shift
         allowed_roles = [{"id": ROLE_TECH, "name": "Technician"}]
         can_choose_shift = False
-        default_shift = shift
+        default_shift = current_shift  # Lock to current user's shift
 
-    elif role == ROLE_SUP:
-        # Supervisor creates Engineers (any shift)
+    elif current_role == ROLE_SUP:
+        # Supervisor: Can create Engineers (allows shift selection)
         allowed_roles = [{"id": ROLE_ENG, "name": "Engineer"}]
         can_choose_shift = True
         
-    elif role == ROLE_MASTER:
-        # Master can create ANY role
+    elif current_role == ROLE_MASTER:
+        # Master: Can create any role and choose any shift
         allowed_roles = [
             {"id": ROLE_TECH,  "name": "Technician"},
             {"id": ROLE_ENG,   "name": "Engineer"},
@@ -341,6 +378,7 @@ def calendar_data():
     if not year or not month:
         year, month = today.year, today.month
 
+    # Calculate start and end dates for the query range
     start_date = datetime(year, month, 1).date()
     if month == 12:
         end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
@@ -351,12 +389,12 @@ def calendar_data():
     cur = conn.cursor()
 
     try:
-        # Determine relevant employees based on role
+        # Determine relevant employees based on hierarchy
         if role == ROLE_ENG:
-            # Engineers only see techs in their shift
+            # Engineers only see Technicians in their specific shift
             cur.execute("SELECT id FROM employees WHERE role_id = %s AND shift = %s", (ROLE_TECH, user_shift))
         else:
-            # Master/Sup/Admin/Clerk see all techs
+            # Master, Supervisor, Admin, and Clerk see all Technicians
             cur.execute("SELECT id FROM employees WHERE role_id = %s", (ROLE_TECH,))
 
         tech_ids = [r[0] for r in cur.fetchall()]
@@ -364,12 +402,14 @@ def calendar_data():
             return jsonify({"year": year, "month": month, "items": []})
 
         # Fetch Approved or Pending requests for calendar display
+        # Filters out hidden (deleted) requests ensuring the calendar remains clean
         cur.execute("""
             SELECT vr.employee_id, e.name, vr.date_start, vr.date_end, vr.status
             FROM vacation_requests vr
             JOIN employees e ON vr.employee_id = e.id
             WHERE vr.employee_id = ANY(%s)
               AND (vr.status = 'Approved' OR vr.status LIKE 'Pending%%')
+              AND vr.is_hidden IS FALSE
               AND vr.date_end >= %s
               AND vr.date_start <= %s
             ORDER BY e.name ASC, vr.date_start ASC;
@@ -411,40 +451,46 @@ def export_excel():
     cur = conn.cursor()
 
     try:
+        # Base Query:
+        # 1. Removed 'WHERE vr.is_hidden IS FALSE' to include deleted/hidden requests.
+        # 2. Added 'e.shift' to the SELECT columns for better reporting.
         base_query = """
-            SELECT e.employee_number, e.name, vr.date_start, vr.date_end,
+            SELECT e.employee_number, e.name, e.shift, vr.date_start, vr.date_end,
                    vr.status, vr.submitted_at, vr.clerk_comment, vr.tech_comment
             FROM vacation_requests vr
             JOIN employees e ON vr.employee_id = e.id
-            WHERE vr.is_hidden IS FALSE
         """
         
         query, params = "", ()
 
         if role == ROLE_ENG:
-            query = base_query + " AND vr.status = 'Pending Engineer' AND e.shift = %s ORDER BY vr.submitted_at DESC"
+            # Engineer: Exports ALL history (active, hidden, rejected, approved), 
+            # but strictly filtered by their own SHIFT.
+            query = base_query + " WHERE e.shift = %s ORDER BY vr.submitted_at DESC"
             params = (eng_shift,)
-        elif role in [ROLE_SUP, ROLE_CLERK, ROLE_MASTER]:
+            
+        elif role in [ROLE_SUP, ROLE_CLERK, ROLE_MASTER, ROLE_ADMIN]:
+            # Master/Sup/Admin/Clerk: Exports EVERYTHING (All shifts, all statuses, history included).
             query = base_query + " ORDER BY vr.submitted_at DESC"
             params = ()
-        elif role == ROLE_ADMIN:
-            query = base_query + " AND vr.status = 'Pending Admin' ORDER BY vr.submitted_at DESC"
-            params = ()
+            
         else:
             return "Role not allowed", 403
 
         cur.execute(query, params)
         rows = cur.fetchall()
 
-        columns = ["Employee ID", "Name", "Start Date", "End Date", "Status", "Submitted At", "HR Comment", "Tech Comment"]
+        # Define headers matching the SELECT order
+        columns = ["Employee ID", "Name", "Shift", "Start Date", "End Date", "Status", "Submitted At", "HR Comment", "Tech Comment"]
         df = pd.DataFrame(rows, columns=columns)
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Vacation_Requests')
+            df.to_excel(writer, index=False, sheet_name='Full_History_Report')
         
         output.seek(0)
-        filename = f"Vacation_Report_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        # Added timestamp to filename
+        filename = f"Vacation_History_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
 
         return send_file(output, download_name=filename, as_attachment=True, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -520,6 +566,44 @@ def submit_request():
 
         req_id = cur.fetchone()[0]
         conn.commit()
+
+        # --- EMAIL NOTIFICATION LOGIC (Notify Engineers) ---
+        try:
+            # 1. Get Technician's info including Employee ID
+            cur.execute("SELECT name, shift, employee_number FROM employees WHERE id = %s", (employee_id,))
+            tech_data = cur.fetchone()
+            tech_name = tech_data[0]
+            tech_shift = tech_data[1]
+            tech_emp_num = tech_data[2] # Clock Number
+
+            # 2. Find Engineers matching that shift who have an email set
+            cur.execute("""
+                SELECT email FROM employees 
+                WHERE role_id = %s AND shift = %s AND email IS NOT NULL
+            """, (ROLE_ENG, tech_shift))
+            
+            eng_emails = [r[0] for r in cur.fetchall()]
+
+            if eng_emails:
+                subject = f"Vacation Request: {tech_name}"
+                body = f"""
+                New Vacation Request
+                --------------------
+                Employee: {tech_name}
+                ID: {tech_emp_num}
+                Shift: {tech_shift}
+                
+                Dates: {date_start} to {date_end}
+                Comment: {tech_comment}
+                
+                Please log in to review.
+                """
+                send_email_notification(subject, eng_emails, body)
+                print(f"Triggered email to engineers: {eng_emails}")
+        except Exception as e:
+            print(f"Email trigger error: {e}")
+        # ---------------------------------------------------
+
         return jsonify({"message": "Request submitted", "id": req_id}), 200
 
     except Exception as e:
@@ -644,17 +728,111 @@ def approve_request(req_id):
                         clerk_comment = CASE WHEN %s = 'Approved' THEN 'Approved directly by Master' ELSE clerk_comment END
                     WHERE id = %s
                 """, (target_status, target_status, req_id))
+
+                # --- NEW EMAIL LOGIC FOR MASTER ACTION ---
+                try:
+                    # 1. Fetch Request Details
+                    cur.execute("""
+                        SELECT e.shift, e.name, vr.date_start, vr.date_end, e.employee_number, vr.tech_comment
+                        FROM vacation_requests vr 
+                        JOIN employees e ON vr.employee_id = e.id 
+                        WHERE vr.id = %s
+                    """, (req_id,))
+                    
+                    row_data = cur.fetchone()
+                    if row_data:
+                        req_shift = row_data[0]
+                        req_name = row_data[1]
+                        req_start = row_data[2]
+                        req_end = row_data[3]
+                        req_emp_num = row_data[4]
+                        req_comment = row_data[5]
+
+                        # 2. Notify Engineer (of that shift) AND Clerk
+                        cur.execute("""
+                            SELECT email FROM employees 
+                            WHERE ((role_id = %s AND shift = %s) OR role_id = %s) 
+                            AND email IS NOT NULL
+                        """, (ROLE_ENG, req_shift, ROLE_CLERK))
+                        
+                        recipients = [r[0] for r in cur.fetchall()]
+
+                        if recipients:
+                            subject = f"Master Update: {req_name}"
+                            body = f"""
+                            The Master User has updated a request manually.
+                            -----------------------------------------------
+                            Employee: {req_name}
+                            ID: {req_emp_num}
+                            Shift: {req_shift}
+                            
+                            New Status: {target_status}
+                            Dates: {req_start} to {req_end}
+                            Original Comment: {req_comment}
+                            """
+                            send_email_notification(subject, recipients, body)
+                            print(f"Master triggered email to: {recipients}")
+                except Exception as e:
+                    print(f"Master email error: {e}")
+                # -----------------------------------------
+
             else:
                 return jsonify({"error": "Master must select a valid target status"}), 400
 
         # --- STANDARD CASCADE LOGIC ---
         elif role == ROLE_ENG and current_status == "Pending Engineer":
-            # Check shift
-            cur.execute("SELECT e.shift FROM vacation_requests vr JOIN employees e ON vr.employee_id = e.id WHERE vr.id = %s", (req_id,))
-            if cur.fetchone()[0] != eng_shift:
+            # Retrieve request details for validation and email
+            cur.execute("""
+                SELECT e.shift, e.name, vr.date_start, vr.date_end, e.employee_number, vr.tech_comment
+                FROM vacation_requests vr 
+                JOIN employees e ON vr.employee_id = e.id 
+                WHERE vr.id = %s
+            """, (req_id,))
+            
+            row_data = cur.fetchone()
+            if not row_data:
+                return jsonify({"error": "Request data missing"}), 404
+                
+            req_shift = row_data[0]
+            req_name = row_data[1]
+            req_start = row_data[2]
+            req_end = row_data[3]
+            req_emp_num = row_data[4] # Clock number
+            req_comment = row_data[5] # Original comment
+
+            if req_shift != eng_shift:
                 return jsonify({"error": "Permission denied (different shift)"}), 403
             
             cur.execute("UPDATE vacation_requests SET status = 'Pending Supervisor', engineer_id = %s WHERE id = %s", (user_id, req_id))
+
+            # --- EMAIL NOTIFICATION LOGIC (Notify Master & Clerk) ---
+            try:
+                cur.execute("""
+                    SELECT email FROM employees 
+                    WHERE role_id IN (%s, %s) AND email IS NOT NULL
+                """, (ROLE_MASTER, ROLE_CLERK))
+                
+                notify_emails = [r[0] for r in cur.fetchall()]
+                
+                if notify_emails:
+                    subject = f"Engineer Approved: {req_name}"
+                    body = f"""
+                    Update: Engineer has Approved Request
+                    -------------------------------------
+                    Employee: {req_name}
+                    ID: {req_emp_num}
+                    Shift: {req_shift}
+                    
+                    Dates: {req_start} to {req_end}
+                    Comment: {req_comment}
+                    
+                    Current Status: Pending Supervisor
+                    """
+                    send_email_notification(subject, notify_emails, body)
+                    print(f"Triggered email to Master/Clerk: {notify_emails}")
+            except Exception as e:
+                print(f"Email trigger error: {e}")
+            # --------------------------------------------------------
 
         elif role == ROLE_SUP and current_status == "Pending Supervisor":
             cur.execute("UPDATE vacation_requests SET status = 'Pending Admin', supervisor_id = %s WHERE id = %s", (user_id, req_id))
@@ -897,6 +1075,7 @@ def admin_reset_password():
     finally:
         cur.close()
         conn.close()
+
 if __name__ == '__main__':
     print("Starting Flask server...")
     app.run(host="0.0.0.0", debug=True, port=6169)

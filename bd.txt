@@ -48,3 +48,17 @@ ON CONFLICT (employee_number) DO NOTHING;
 -- REMINDER:
 -- If you just added the Master, their password is 'admin123' (plain text).
 -- Please run 'python migrate_passwords.py' in your terminal to encrypt it.
+
+ALTER TABLE employees ADD COLUMN email VARCHAR(255);
+
+-- 1. Asignar tu correo a TODOS los Ingenieros (Role 2)
+UPDATE employees 
+SET email = 'josejotillo.com' 
+WHERE role_id = 2;
+
+-- 2. Asignar tu correo al Master (Role 6) y Clerk (Role 5)
+UPDATE employees 
+SET email = 'rubengay.com' 
+WHERE role_id IN (5, 6);
+
+pip install openpyxl
